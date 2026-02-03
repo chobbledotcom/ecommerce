@@ -74,6 +74,7 @@ const routePaymentPath = createLazyRoute("/payment", loadPaymentRoutes);
  * Routes are loaded lazily based on path prefix
  */
 const routeMainApp: RouterFn = async (request, path, method, server) =>
+  (path === "" || path === "/" ? redirect("/admin/") : null) ??
   (await routeAdminPath(request, path, method, server)) ??
   (await routePaymentPath(request, path, method, server)) ??
   notFoundResponse();
