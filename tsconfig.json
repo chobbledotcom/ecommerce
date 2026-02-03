@@ -1,0 +1,39 @@
+{
+  "compilerOptions": {
+    "strict": true,
+    "noImplicitAny": true,
+    "strictNullChecks": true,
+    "noUncheckedIndexedAccess": true,
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "declaration": true,
+    "declarationMap": true,
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "jsx": "react-jsx",
+    "jsxImportSource": "#jsx",
+    "paths": {
+      "#fp": ["./src/fp/index.ts"],
+      "#fp/*": ["./src/fp/*"],
+      "#test-utils": ["./src/test-utils/index.ts"],
+      "#test-utils/*": ["./src/test-utils/*"],
+      "#src/*": ["./src/*"],
+      "#test/*": ["./test/*"],
+      "#jsx/*": ["./src/lib/jsx/*"],
+      "#lib/db/*": ["./src/lib/db/*"],
+      "#lib/rest/*": ["./src/lib/rest/*"],
+      "#lib/jsx/*": ["./src/lib/jsx/*"],
+      "#lib/*": ["./src/lib/*"],
+      "#routes": ["./src/routes/index.ts"],
+      "#routes/*": ["./src/routes/*"],
+      "#templates/*": ["./src/templates/*"],
+      "#static/*": ["./src/static/*"]
+    }
+  },
+  "include": ["src/**/*.ts", "src/**/*.tsx", "test/**/*.ts", "test/**/*.tsx"],
+  "exclude": ["node_modules"]
+}

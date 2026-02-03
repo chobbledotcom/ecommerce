@@ -1,0 +1,22 @@
+{
+	"threshold": 0,
+	"_comment": "0% duplication threshold is non-negotiable - use FP patterns from #fp to eliminate all duplication",
+	"reporters": ["console", "json"],
+	"output": ".jscpd-report",
+	"ignore": [
+		"**/node_modules/**",
+		"**/package-lock.json",
+		"**/deno.lock",
+		"bunny-script.ts",
+		"src/fp/index.ts",
+		"src/lib/crypto.ts",
+		"src/routes/admin/**"
+	],
+	"format": ["typescript", "json"],
+	"absolute": false,
+	"gitignore": true,
+	"exitCode": 1,
+	"minLines": 1,
+	"minTokens": 25,
+	"path": ["src", "test", "scripts"]
+}
