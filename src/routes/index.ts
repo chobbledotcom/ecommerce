@@ -28,12 +28,6 @@ const loadAdminRoutes = once(async () => {
   return routeAdmin;
 });
 
-/** Lazy-load public routes (ticket reservation) */
-const loadPublicRoutes = once(async () => {
-  const { handleHome, routeTicket } = await import("#routes/public.ts");
-  return { handleHome, routeTicket };
-});
-
 /** Lazy-load setup routes */
 const loadSetupRoutes = once(async () => {
   const { createSetupRouter } = await import("#routes/setup.ts");
@@ -46,23 +40,6 @@ const loadPaymentRoutes = once(async () => {
   return routePayment;
 });
 
-/** Lazy-load join/invite routes */
-const loadJoinRoutes = once(async () => {
-  const { routeJoin } = await import("#routes/join.ts");
-  return routeJoin;
-});
-
-/** Lazy-load ticket view routes */
-const loadTicketViewRoutes = once(async () => {
-  const { routeTicketView } = await import("#routes/tickets.ts");
-  return routeTicketView;
-});
-
-/** Lazy-load check-in routes */
-const loadCheckinRoutes = once(async () => {
-  const { routeCheckin } = await import("#routes/checkin.ts");
-  return routeCheckin;
-});
 
 // Re-export middleware functions for testing
 export {
@@ -88,36 +65,17 @@ const createLazyRoute =
     return route(request, path, method, server);
   };
 
-/** Route home page requests */
-const routeHome: RouterFn = async (_, path, method) => {
-  if (path !== "/" || method !== "GET") return null;
-  const { handleHome } = await loadPublicRoutes();
-  return handleHome();
-};
-
 /** Lazy-loaded route handlers */
 const routeAdminPath = createLazyRoute("/admin", loadAdminRoutes);
-const routeTicketPath = createLazyRoute(
-  "/ticket",
-  async () => (await loadPublicRoutes()).routeTicket,
-);
 const routePaymentPath = createLazyRoute("/payment", loadPaymentRoutes);
-const routeJoinPath = createLazyRoute("/join", loadJoinRoutes);
-const routeTicketViewPath = createLazyRoute("/t", loadTicketViewRoutes);
-const routeCheckinPath = createLazyRoute("/checkin", loadCheckinRoutes);
 
 /**
  * Route main application requests (after setup is complete)
  * Routes are loaded lazily based on path prefix
  */
 const routeMainApp: RouterFn = async (request, path, method, server) =>
-  (await routeHome(request, path, method, server)) ??
   (await routeAdminPath(request, path, method, server)) ??
-  (await routeTicketPath(request, path, method, server)) ??
-  (await routeTicketViewPath(request, path, method, server)) ??
-  (await routeCheckinPath(request, path, method, server)) ??
   (await routePaymentPath(request, path, method, server)) ??
-  (await routeJoinPath(request, path, method, server)) ??
   notFoundResponse();
 
 /**

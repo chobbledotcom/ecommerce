@@ -3,7 +3,6 @@
  */
 
 import { getAllActivityLog } from "#lib/db/activityLog.ts";
-import { getAllEvents } from "#lib/db/events.ts";
 import { defineRoutes } from "#routes/router.ts";
 import { htmlResponse, requireSessionOr, withSession } from "#routes/utils.ts";
 import { adminGlobalActivityLogPage } from "#templates/admin/activityLog.tsx";
@@ -21,7 +20,7 @@ const handleAdminGet = (request: Request): Promise<Response> =>
   withSession(
     request,
     async (session) =>
-      htmlResponse(adminDashboardPage(await getAllEvents(), session)),
+      htmlResponse(adminDashboardPage(session)),
     () => loginResponse(),
   );
 

@@ -2,21 +2,18 @@
  * Shared utilities for route handlers
  */
 
-import { compact, err, map, ok, pipe, type Result, reduce } from "#fp";
+import { compact, map, pipe, reduce } from "#fp";
 import {
   constantTimeEqual,
   generateSecureToken,
   getPrivateKeyFromSession,
 } from "#lib/crypto.ts";
-import { getEventWithCount, getEventWithCountBySlug } from "#lib/db/events.ts";
 import { deleteSession, getSession } from "#lib/db/sessions.ts";
 import { getWrappedPrivateKey } from "#lib/db/settings.ts";
 import { decryptAdminLevel, getUserById } from "#lib/db/users.ts";
 import { ErrorCode, logError } from "#lib/logger.ts";
-import type { AdminLevel, EventWithCount } from "#lib/types.ts";
+import type { AdminLevel } from "#lib/types.ts";
 import type { ServerContext } from "#routes/types.ts";
-import { paymentErrorPage } from "#templates/payment.tsx";
-import { notFoundPage } from "#templates/public.tsx";
 
 // Re-export for use by other route modules
 export { generateSecureToken };
@@ -153,13 +150,16 @@ export const htmlResponse = (html: string, status = 200): Response =>
  * Create 404 not found response
  */
 export const notFoundResponse = (): Response =>
-  htmlResponse(notFoundPage(), 404);
+  htmlResponse("Not Found", 404);
 
 /**
- * Create payment error response
+ * Create JSON error response
  */
-export const paymentErrorResponse = (message: string, status = 400): Response =>
-  htmlResponse(paymentErrorPage(message), status);
+export const jsonErrorResponse = (message: string, status = 400): Response =>
+  new Response(JSON.stringify({ error: message }), {
+    status,
+    headers: { "content-type": "application/json" },
+  });
 
 /**
  * Create redirect response
@@ -242,97 +242,6 @@ export const htmlResponseWithCookie =
   (cookie: string) =>
   (html: string, status = 200): Response =>
     withCookie(htmlResponse(html, status), cookie);
-
-/** Handler function that takes a value and returns a Response */
-type EventHandler = (event: EventWithCount) => Response | Promise<Response>;
-
-/**
- * Unwrap Result with handler - returns error response or applies handler to value
- */
-const unwrapResult = (
-  result: Result<EventWithCount>,
-  handler: EventHandler,
-): Promise<Response> | Response =>
-  result.ok ? handler(result.value) : result.response;
-
-/**
- * Fetch event or return 404 response
- */
-export const fetchEventOr404 = async (
-  eventId: number,
-): Promise<Result<EventWithCount>> => {
-  const event = await getEventWithCount(eventId);
-  return event ? ok(event) : err(notFoundResponse());
-};
-
-/**
- * Handle event with Result - unwrap to Response
- */
-export const withEvent = async (
-  eventId: number,
-  handler: EventHandler,
-): Promise<Response> => unwrapResult(await fetchEventOr404(eventId), handler);
-
-/**
- * Fetch event by slug or return 404 response.
- */
-export const fetchEventBySlugOr404 = async (
-  slug: string,
-): Promise<Result<EventWithCount>> => {
-  const event = await getEventWithCountBySlug(slug);
-  return event ? ok(event) : err(notFoundResponse());
-};
-
-/**
- * Handle event by slug with Result - unwrap to Response
- */
-export const withEventBySlug = async (
-  slug: string,
-  handler: EventHandler,
-): Promise<Response> =>
-  unwrapResult(await fetchEventBySlugOr404(slug), handler);
-
-/** Check if event is active, return 404 if not */
-const requireActiveEvent =
-  (handler: (event: EventWithCount) => Response | Promise<Response>) =>
-  (event: EventWithCount): Response | Promise<Response> =>
-    event.active === 1 ? handler(event) : notFoundResponse();
-
-/** Handle event by slug with active check - return 404 if not found or inactive */
-export const withActiveEventBySlug = (
-  slug: string,
-  fn: (event: EventWithCount) => Response | Promise<Response>,
-): Promise<Response> => withEventBySlug(slug, requireActiveEvent(fn));
-
-/** Check if an event's registration period has closed */
-export const isRegistrationClosed = (event: { closes_at: string | null }): boolean =>
-  event.closes_at !== null && new Date(event.closes_at).getTime() < Date.now();
-
-/** Create a formatter for attendee creation failures (capacity_exceeded / encryption_error) */
-export const formatCreationError =
-  (
-    capacityMsg: string,
-    capacityMsgWithName: (name: string) => string,
-    fallbackMsg: string,
-  ) =>
-  (reason: "capacity_exceeded" | "encryption_error", eventName?: string): string =>
-    reason === "capacity_exceeded"
-      ? eventName ? capacityMsgWithName(eventName) : capacityMsg
-      : fallbackMsg;
-
-/** Format a countdown from now to a future closes_at date, e.g. "3 days and 5 hours from now" */
-export const formatCountdown = (closesAt: string): string => {
-  const diffMs = new Date(closesAt).getTime() - Date.now();
-  if (diffMs <= 0) return "closed";
-  const totalHours = Math.floor(diffMs / (1000 * 60 * 60));
-  const days = Math.floor(totalHours / 24);
-  const hours = totalHours % 24;
-  const pl = (n: number, unit: string) => `${n} ${unit}${n !== 1 ? "s" : ""}`;
-  if (days > 0 && hours > 0) return `${pl(days, "day")} and ${pl(hours, "hour")} from now`;
-  if (days > 0) return `${pl(days, "day")} from now`;
-  if (hours > 0) return `${pl(hours, "hour")} from now`;
-  return `${pl(Math.max(1, Math.floor(diffMs / (1000 * 60))), "minute")} from now`;
-};
 
 /** Session with CSRF token, wrapped data key for private key derivation, and user role */
 export type AuthSession = {

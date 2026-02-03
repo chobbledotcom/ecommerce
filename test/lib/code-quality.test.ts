@@ -213,6 +213,8 @@ describe("code quality", () => {
       "lib/jsx/jsx-runtime.ts", // JSX compiler runtime
       "lib/jsx/jsx-dev-runtime.ts", // JSX dev runtime
       "config/asset-paths.ts", // Build-time config consumed by .tsx templates
+      "lib/db/products.ts", // Product catalog module - routes added in Step 3
+      "lib/db/reservations.ts", // Stock reservations module - routes added in Step 3
     ];
 
     /** Index modules that only re-export from sub-modules */
@@ -238,6 +240,10 @@ describe("code quality", () => {
       "lib/db/settings.ts:clearSetupCompleteCache",
       // Reset cached sessions between tests
       "lib/db/sessions.ts:resetSessionCache",
+      // Validation utilities - used in forms, routes added in Step 3
+      "templates/fields.ts:validatePhone",
+      // Config utility - used in routes added in Step 3
+      "lib/config.ts:isPaymentsEnabled",
       // DB version constant used in production but test pattern doesn't detect constant comparison
       "lib/db/migrations/index.ts:LATEST_UPDATE",
       // Client-side Stripe publishable key (for future payment form templates)

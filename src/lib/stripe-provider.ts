@@ -15,15 +15,18 @@ import type {
   MultiRegistrationIntent,
   PaymentProvider,
   PaymentProviderType,
+  PaymentSessionListResult,
   RegistrationIntent,
   ValidatedPaymentSession,
   WebhookEvent,
   WebhookSetupResult,
   WebhookVerifyResult,
 } from "#lib/payments.ts";
+import type { PaymentSession } from "#lib/types.ts";
 import {
   createCheckoutSessionWithIntent,
   createMultiCheckoutSession,
+  listCheckoutSessions,
   refundPayment as stripeRefund,
   retrieveCheckoutSession,
   setupWebhookEndpoint,
@@ -99,5 +102,25 @@ export const stripePaymentProvider: PaymentProvider = {
     existingEndpointId?: string | null,
   ): Promise<WebhookSetupResult> {
     return setupWebhookEndpoint(secretKey, webhookUrl, existingEndpointId);
+  },
+
+  async listSessions(params: {
+    limit: number;
+    startingAfter?: string;
+  }): Promise<PaymentSessionListResult> {
+    const result = await listCheckoutSessions(params);
+    if (!result) return { sessions: [], hasMore: false };
+
+    const sessions: PaymentSession[] = result.sessions.map((s) => ({
+      id: s.id,
+      status: s.payment_status,
+      amount: s.amount_total ?? null,
+      currency: s.currency ?? null,
+      customerEmail: s.customer_details?.email ?? s.customer_email ?? null,
+      created: new Date(s.created * 1000).toISOString(),
+      url: s.url ?? null,
+    }));
+
+    return { sessions, hasMore: result.hasMore };
   },
 };

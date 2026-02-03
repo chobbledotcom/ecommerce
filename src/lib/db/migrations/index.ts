@@ -9,7 +9,7 @@ import { getPublicKey, getSetting } from "#lib/db/settings.ts";
 /**
  * The latest database update identifier - update this when changing schema
  */
-export const LATEST_UPDATE = "add ticket_token";
+export const LATEST_UPDATE = "add products and stock_reservations";
 
 /**
  * Run a migration that may fail if already applied (e.g., adding a column that exists)
@@ -280,6 +280,42 @@ export const initDb = async (): Promise<void> => {
     `CREATE UNIQUE INDEX IF NOT EXISTS idx_attendees_ticket_token ON attendees(ticket_token)`,
   );
 
+  // Create products table (ecommerce catalog)
+  await runMigration(`
+    CREATE TABLE IF NOT EXISTS products (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      sku TEXT NOT NULL UNIQUE,
+      name TEXT NOT NULL,
+      description TEXT NOT NULL DEFAULT '',
+      unit_price INTEGER NOT NULL,
+      stock INTEGER NOT NULL DEFAULT 0,
+      active INTEGER NOT NULL DEFAULT 1,
+      image_url TEXT NOT NULL DEFAULT '',
+      created TEXT NOT NULL
+    )
+  `);
+
+  // Create stock_reservations table (tracks in-flight checkout sessions)
+  await runMigration(`
+    CREATE TABLE IF NOT EXISTS stock_reservations (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      product_id INTEGER NOT NULL,
+      quantity INTEGER NOT NULL,
+      provider_session_id TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      created TEXT NOT NULL,
+      FOREIGN KEY (product_id) REFERENCES products(id)
+    )
+  `);
+
+  // Create indexes for stock_reservations lookups
+  await runMigration(
+    `CREATE INDEX IF NOT EXISTS idx_reservations_session ON stock_reservations(provider_session_id)`,
+  );
+  await runMigration(
+    `CREATE INDEX IF NOT EXISTS idx_reservations_status ON stock_reservations(status, created)`,
+  );
+
   // Update the version marker
   await getDb().execute({
     sql: "INSERT OR REPLACE INTO settings (key, value) VALUES ('latest_db_update', ?)",
@@ -291,6 +327,8 @@ export const initDb = async (): Promise<void> => {
  * All database tables in order for safe dropping (respects foreign key constraints)
  */
 const ALL_TABLES = [
+  "stock_reservations",
+  "products",
   "activity_log",
   "processed_payments",
   "attendees",

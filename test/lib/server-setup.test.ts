@@ -9,14 +9,12 @@ import {
   mockRequest,
   mockSetupFormRequest,
   resetDb,
-  resetTestSlugCounter,
   expectRedirect,
   withMocks,
 } from "#test-utils";
 
 describe("server (setup)", () => {
   beforeEach(async () => {
-    resetTestSlugCounter();
     await createTestDbWithSetup();
   });
 

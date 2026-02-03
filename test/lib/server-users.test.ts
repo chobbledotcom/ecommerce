@@ -22,7 +22,6 @@ import {
   mockFormRequest,
   mockRequest,
   resetDb,
-  resetTestSlugCounter,
   TEST_ADMIN_PASSWORD,
   TEST_ADMIN_USERNAME,
 } from "#test-utils";
@@ -38,7 +37,6 @@ const getInviteCodeFromRedirect = (response: Response): string => {
 
 describe("server (multi-user admin)", () => {
   beforeEach(async () => {
-    resetTestSlugCounter();
     await createTestDbWithSetup();
   });
 

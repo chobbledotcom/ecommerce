@@ -7,7 +7,6 @@ import {
   mockFormRequest,
   mockRequest,
   resetDb,
-  resetTestSlugCounter,
   expectAdminRedirect,
   loginAsAdmin,
   TEST_ADMIN_PASSWORD,
@@ -15,7 +14,6 @@ import {
 
 describe("server (admin auth)", () => {
   beforeEach(async () => {
-    resetTestSlugCounter();
     await createTestDbWithSetup();
   });
 

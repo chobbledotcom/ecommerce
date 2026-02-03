@@ -8,7 +8,7 @@ import {
   type WebhookEvent,
   type WebhookPayload,
 } from "#lib/webhook.ts";
-import { createTestDbWithSetup, createTestEvent, resetDb } from "#test-utils";
+import { createTestDbWithSetup, resetDb } from "#test-utils";
 
 /** Helper to build a WebhookEvent with sensible defaults */
 const makeEvent = (overrides: Partial<WebhookEvent> = {}): WebhookEvent => ({
@@ -242,113 +242,4 @@ describe("webhook", () => {
     });
   });
 
-  describe("logAndNotifyRegistration", () => {
-    beforeEach(async () => {
-      await createTestDbWithSetup();
-    });
-
-    afterEach(() => {
-      resetDb();
-    });
-
-    test("sends webhook when event has webhook_url", async () => {
-      const { logAndNotifyRegistration } = await import("#lib/webhook.ts");
-      const dbEvent = await createTestEvent({ webhookUrl: "https://example.com/hook" });
-      const event = makeEvent({
-        id: dbEvent.id,
-        name: dbEvent.name,
-        slug: dbEvent.slug,
-        webhook_url: "https://example.com/hook",
-      });
-      const attendee = makeAttendee();
-
-      await logAndNotifyRegistration(event, attendee, "GBP");
-
-      expect(fetchSpy).toHaveBeenCalledTimes(1);
-      const [url, options] = fetchSpy.mock.calls[0] as [string, RequestInit];
-      expect(url).toBe("https://example.com/hook");
-      const body = JSON.parse(options.body as string) as WebhookPayload;
-      expect(body.event_type).toBe("registration.completed");
-      expect(body.name).toBe("Jane Doe");
-    });
-
-    test("does not send webhook when event has no webhook_url", async () => {
-      const { logAndNotifyRegistration } = await import("#lib/webhook.ts");
-      const dbEvent = await createTestEvent();
-      const event = makeEvent({
-        id: dbEvent.id,
-        name: dbEvent.name,
-        slug: dbEvent.slug,
-        webhook_url: null,
-      });
-      const attendee = makeAttendee();
-
-      await logAndNotifyRegistration(event, attendee, "GBP");
-
-      expect(fetchSpy).not.toHaveBeenCalled();
-    });
-  });
-
-  describe("logAndNotifyMultiRegistration", () => {
-    beforeEach(async () => {
-      await createTestDbWithSetup();
-    });
-
-    afterEach(() => {
-      resetDb();
-    });
-
-    test("sends webhooks for multi-event registration", async () => {
-      const { logAndNotifyMultiRegistration } = await import("#lib/webhook.ts");
-      const dbEventA = await createTestEvent({ webhookUrl: "https://hook.com" });
-      const dbEventB = await createTestEvent({ webhookUrl: "https://hook.com" });
-      const entries: RegistrationEntry[] = [
-        {
-          event: makeEvent({
-            id: dbEventA.id,
-            name: dbEventA.name,
-            slug: dbEventA.slug,
-            webhook_url: "https://hook.com",
-          }),
-          attendee: makeAttendee(),
-        },
-        {
-          event: makeEvent({
-            id: dbEventB.id,
-            name: dbEventB.name,
-            slug: dbEventB.slug,
-            webhook_url: "https://hook.com",
-          }),
-          attendee: makeAttendee(),
-        },
-      ];
-
-      await logAndNotifyMultiRegistration(entries, "GBP");
-
-      expect(fetchSpy).toHaveBeenCalledTimes(1);
-      const [, options] = fetchSpy.mock.calls[0] as [string, RequestInit];
-      const body = JSON.parse(options.body as string) as WebhookPayload;
-      expect(body.tickets).toHaveLength(2);
-    });
-
-    test("does not send webhook when no events have webhook URLs", async () => {
-      const { logAndNotifyMultiRegistration } = await import("#lib/webhook.ts");
-      const dbEventA = await createTestEvent();
-      const dbEventB = await createTestEvent();
-      const entries: RegistrationEntry[] = [
-        {
-          event: makeEvent({ id: dbEventA.id, webhook_url: null }),
-          attendee: makeAttendee(),
-        },
-        {
-          event: makeEvent({ id: dbEventB.id, webhook_url: null }),
-          attendee: makeAttendee(),
-        },
-      ];
-
-      await logAndNotifyMultiRegistration(entries, "USD");
-
-      expect(fetchSpy).not.toHaveBeenCalled();
-    });
-  });
 });

@@ -218,6 +218,13 @@ const createPaymentLinkImpl = (
 /**
  * Stubbable API for testing - allows mocking in ES modules
  */
+/** Result of searching orders */
+export type SquareOrderListResult = {
+  orders: SquareOrder[];
+  hasMore: boolean;
+  cursor?: string;
+};
+
 export const squareApi: {
   getSquareClient: () => ReturnType<typeof getClientImpl>;
   resetSquareClient: () => void;
@@ -231,6 +238,7 @@ export const squareApi: {
     baseUrl: string,
   ) => Promise<PaymentLinkResult>;
   retrieveOrder: (orderId: string) => Promise<SquareOrder | null>;
+  searchOrders: (params: { limit: number; cursor?: string }) => Promise<SquareOrderListResult | null>;
   retrievePayment: (paymentId: string) => Promise<SquarePayment | null>;
   refundPayment: (paymentId: string) => Promise<boolean>;
 } = {
@@ -343,6 +351,54 @@ export const squareApi: {
       ErrorCode.SQUARE_ORDER,
     ),
 
+  /** Search orders (for listing in admin) */
+  searchOrders: (
+    params: { limit: number; cursor?: string },
+  ): Promise<SquareOrderListResult | null> =>
+    withClient(
+      async (client) => {
+        const locationId = await getLocationId();
+        if (!locationId) return { orders: [], hasMore: false };
+
+        const response = await client.orders.search({
+          locationIds: [locationId],
+          limit: params.limit,
+          ...(params.cursor ? { cursor: params.cursor } : {}),
+          query: {
+            sort: { sortField: "CREATED_AT", sortOrder: "DESC" },
+          },
+        });
+
+        const orders: SquareOrder[] = (response.orders ?? []).map((order) => {
+          const metadata: Record<string, string> | undefined = order.metadata
+            ? Object.fromEntries(
+                Object.entries(order.metadata).filter(
+                  (entry): entry is [string, string] =>
+                    typeof entry[1] === "string",
+                ),
+              )
+            : undefined;
+
+          return {
+            id: order.id,
+            metadata,
+            tenders: order.tenders?.map((t) => ({
+              id: t.id,
+              paymentId: t.paymentId ?? undefined,
+            })),
+            state: order.state,
+          };
+        });
+
+        return {
+          orders,
+          hasMore: !!response.cursor,
+          cursor: response.cursor ?? undefined,
+        };
+      },
+      ErrorCode.SQUARE_ORDER,
+    ),
+
   /** Retrieve a payment by ID */
   retrievePayment: (paymentId: string): Promise<SquarePayment | null> =>
     withClient(
@@ -401,6 +457,8 @@ export const createPaymentLink = (e: Event, i: RegistrationIntent, b: string) =>
 export const createMultiPaymentLink = (i: MultiRegistrationIntent, b: string) =>
   squareApi.createMultiPaymentLink(i, b);
 export const retrieveOrder = (id: string) => squareApi.retrieveOrder(id);
+export const searchOrders = (params: { limit: number; cursor?: string }) =>
+  squareApi.searchOrders(params);
 export const retrievePayment = (id: string) => squareApi.retrievePayment(id);
 export const refundPayment = (id: string) => squareApi.refundPayment(id);
 

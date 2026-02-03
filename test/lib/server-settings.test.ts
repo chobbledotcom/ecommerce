@@ -5,11 +5,9 @@ import { handleRequest } from "#routes";
 import {
   awaitTestRequest,
   createTestDbWithSetup,
-  createTestEvent,
   mockFormRequest,
   mockRequest,
   resetDb,
-  resetTestSlugCounter,
   expectAdminRedirect,
   expectRedirect,
   loginAsAdmin,
@@ -19,7 +17,6 @@ import {
 
 describe("server (admin settings)", () => {
   beforeEach(async () => {
-    resetTestSlugCounter();
     await createTestDbWithSetup();
   });
 
@@ -662,13 +659,6 @@ describe("server (admin settings)", () => {
     });
 
     test("resets database and redirects to setup on correct phrase", async () => {
-      // Create some data first
-      await createTestEvent({
-        name: "Test Event",
-        maxAttendees: 100,
-        thankYouUrl: "https://example.com/thanks",
-      });
-
       const { cookie, csrfToken } = await loginAsAdmin();
 
       const response = await handleRequest(

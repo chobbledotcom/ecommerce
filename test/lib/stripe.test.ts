@@ -16,7 +16,7 @@ import {
 } from "#lib/stripe.ts";
 import { stripePaymentProvider } from "#lib/stripe-provider.ts";
 import { setStripeWebhookConfig, updateStripeKey } from "#lib/db/settings.ts";
-import { createTestDb, resetDb, testEvent, withMocks } from "#test-utils";
+import { createTestDb, resetDb, withMocks } from "#test-utils";
 
 describe("stripe", () => {
   let originalMockHost: string | undefined;
@@ -736,7 +736,7 @@ describe("stripe", () => {
     test("includes phone in metadata when provided", async () => {
       await updateStripeKey("sk_test_mock");
 
-      const event = testEvent({ unit_price: 1000 });
+      const event = { id: 1, name: "Test Event", description: "desc", slug: "test", slug_index: "test_idx", created: new Date().toISOString(), max_attendees: 100, thank_you_url: null, unit_price: 1000, max_quantity: 10, webhook_url: null, active: 1, fields: "email" as const, closes_at: null };
       const intent = {
         eventId: 1,
         name: "John Doe",
@@ -761,7 +761,7 @@ describe("stripe", () => {
     test("creates checkout session without customer_email when email is empty", async () => {
       await updateStripeKey("sk_test_mock");
 
-      const event = testEvent({ unit_price: 1000 });
+      const event = { id: 1, name: "Test Event", description: "desc", slug: "test", slug_index: "test_idx", created: new Date().toISOString(), max_attendees: 100, thank_you_url: null, unit_price: 1000, max_quantity: 10, webhook_url: null, active: 1, fields: "email" as const, closes_at: null };
       const intent = {
         eventId: 1,
         name: "No Email User",
@@ -1289,7 +1289,7 @@ describe("stripe-provider", () => {
       } as never);
 
       try {
-        const event = testEvent({ unit_price: 1000 });
+        const event = { id: 1, name: "Test Event", description: "desc", slug: "test", slug_index: "test_idx", created: new Date().toISOString(), max_attendees: 100, thank_you_url: null, unit_price: 1000, max_quantity: 10, webhook_url: null, active: 1, fields: "email" as const, closes_at: null };
         const intent = {
           eventId: 1,
           name: "John",
@@ -1320,7 +1320,7 @@ describe("stripe-provider", () => {
       createSpy.mockRejectedValue(new Error("API error"));
 
       try {
-        const event = testEvent({ unit_price: 1000 });
+        const event = { id: 1, name: "Test Event", description: "desc", slug: "test", slug_index: "test_idx", created: new Date().toISOString(), max_attendees: 100, thank_you_url: null, unit_price: 1000, max_quantity: 10, webhook_url: null, active: 1, fields: "email" as const, closes_at: null };
         const intent = {
           eventId: 1,
           name: "John",

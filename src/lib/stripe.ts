@@ -161,10 +161,17 @@ const buildSessionParams = async (
  * Stubbable API for testing - allows mocking in ES modules
  * Production code uses stripeApi.method() to enable test mocking
  */
+/** Result of listing checkout sessions */
+export type StripeSessionListResult = {
+  sessions: Stripe.Checkout.Session[];
+  hasMore: boolean;
+};
+
 export const stripeApi: {
   getStripeClient: () => Promise<Stripe | null>;
   resetStripeClient: () => void;
   retrieveCheckoutSession: (id: string) => Promise<Stripe.Checkout.Session | null>;
+  listCheckoutSessions: (params: { limit: number; startingAfter?: string }) => Promise<StripeSessionListResult | null>;
   refundPayment: (intentId: string) => Promise<Stripe.Refund | null>;
   createCheckoutSessionWithIntent: (
     event: Event,
@@ -196,6 +203,27 @@ export const stripeApi: {
     id: string,
   ): Promise<Stripe.Checkout.Session | null> =>
     withClient((s) => s.checkout.sessions.retrieve(id), ErrorCode.STRIPE_SESSION),
+
+  /** List checkout sessions */
+  listCheckoutSessions: (
+    params: { limit: number; startingAfter?: string },
+  ): Promise<StripeSessionListResult | null> =>
+    withClient(
+      async (s) => {
+        const listParams: Stripe.Checkout.SessionListParams = {
+          limit: params.limit,
+        };
+        if (params.startingAfter) {
+          listParams.starting_after = params.startingAfter;
+        }
+        const result = await s.checkout.sessions.list(listParams);
+        return {
+          sessions: result.data,
+          hasMore: result.has_more,
+        };
+      },
+      ErrorCode.STRIPE_SESSION,
+    ),
 
   /** Refund a payment */
   refundPayment: (intentId: string): Promise<Stripe.Refund | null> =>
@@ -420,6 +448,8 @@ export const getStripeClient = () => stripeApi.getStripeClient();
 export const resetStripeClient = () => stripeApi.resetStripeClient();
 export const retrieveCheckoutSession = (id: string) =>
   stripeApi.retrieveCheckoutSession(id);
+export const listCheckoutSessions = (params: { limit: number; startingAfter?: string }) =>
+  stripeApi.listCheckoutSessions(params);
 export const refundPayment = (id: string) => stripeApi.refundPayment(id);
 export const createCheckoutSessionWithIntent = (
   e: Event,

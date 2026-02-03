@@ -3,18 +3,15 @@ import { handleRequest } from "#routes";
 import {
   createTestDb,
   createTestDbWithSetup,
-  createTestEvent,
   loginAsAdmin,
   mockFormRequest,
   mockRequest,
   mockRequestWithHost,
   resetDb,
-  resetTestSlugCounter,
 } from "#test-utils";
 
 describe("server (misc)", () => {
   beforeEach(async () => {
-    resetTestSlugCounter();
     await createTestDbWithSetup();
   });
 
@@ -32,17 +29,6 @@ describe("server (misc)", () => {
       test("admin pages have X-Frame-Options: DENY", async () => {
         const response = await handleRequest(mockRequest("/admin/"));
         expect(response.headers.get("x-frame-options")).toBe("DENY");
-      });
-
-      test("ticket page does NOT have X-Frame-Options (embeddable)", async () => {
-        const event = await createTestEvent({
-          maxAttendees: 50,
-          thankYouUrl: "https://example.com",
-        });
-        const response = await handleRequest(
-          mockRequest(`/ticket/${event.slug}`),
-        );
-        expect(response.headers.get("x-frame-options")).toBeNull();
       });
 
       test("payment pages have X-Frame-Options: DENY", async () => {
@@ -69,16 +55,6 @@ describe("server (misc)", () => {
         );
       });
 
-      test("ticket page has CSP but allows embedding (no frame-ancestors)", async () => {
-        const event = await createTestEvent({
-          maxAttendees: 50,
-          thankYouUrl: "https://example.com",
-        });
-        const response = await handleRequest(
-          mockRequest(`/ticket/${event.slug}`),
-        );
-        expect(response.headers.get("content-security-policy")).toBe(baseCsp);
-      });
     });
 
     describe("other security headers", () => {
@@ -99,20 +75,6 @@ describe("server (misc)", () => {
         expect(response.headers.get("x-robots-tag")).toBe("noindex, nofollow");
       });
 
-      test("ticket pages also have base security headers", async () => {
-        const event = await createTestEvent({
-          maxAttendees: 50,
-          thankYouUrl: "https://example.com",
-        });
-        const response = await handleRequest(
-          mockRequest(`/ticket/${event.slug}`),
-        );
-        expect(response.headers.get("x-content-type-options")).toBe("nosniff");
-        expect(response.headers.get("referrer-policy")).toBe(
-          "strict-origin-when-cross-origin",
-        );
-        expect(response.headers.get("x-robots-tag")).toBe("noindex, nofollow");
-      });
     });
   });
 
@@ -164,18 +126,6 @@ describe("server (misc)", () => {
       expect(response.status).toBe(400);
       const text = await response.text();
       expect(text).toContain("Invalid Content-Type");
-    });
-  });
-
-  describe("routes/router.ts (slug and generic param patterns)", () => {
-    test("slug pattern matches lowercase alphanumeric with hyphens", async () => {
-      const event = await createTestEvent({
-        name: "My Test Event",
-        maxAttendees: 50,
-        thankYouUrl: "https://example.com",
-      });
-      const response = await handleRequest(mockRequest(`/ticket/${event.slug}`));
-      expect(response.status).toBe(200);
     });
   });
 
@@ -280,15 +230,6 @@ describe("server (misc)", () => {
   });
 
   describe("routes/router.ts (param patterns)", () => {
-    test("matches slug pattern with lowercase alphanumeric and hyphens", async () => {
-      const event = await createTestEvent({
-        name: "My Test Event",
-        maxAttendees: 50,
-      });
-      const response = await handleRequest(mockRequest(`/ticket/${event.slug}`));
-      expect(response.status).toBe(200);
-    });
-
     test("returns 404 for unknown route pattern", async () => {
       const response = await handleRequest(mockRequest("/unknown-path-xyz"));
       expect(response.status).toBe(404);

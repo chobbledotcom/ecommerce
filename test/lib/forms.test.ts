@@ -6,14 +6,9 @@ import {
   renderFields,
 } from "#lib/forms.tsx";
 import {
-  eventFields,
-  getTicketFields,
-  mergeEventFields,
-  ticketFields,
   validatePhone,
 } from "#templates/fields.ts";
 import {
-  baseEventForm,
   expectInvalid,
   expectInvalidForm,
   expectValid,
@@ -33,11 +28,6 @@ const rendered = (
   value?: string,
 ): string => renderField(field(overrides), value);
 
-/** Helper: build event form data with overrides. */
-const eventForm = (overrides: Record<string, string> = {}): Record<string, string> => ({
-  ...baseEventForm,
-  ...overrides,
-});
 
 describe("forms", () => {
   describe("renderField", () => {
@@ -213,76 +203,6 @@ describe("forms", () => {
     });
   });
 
-  describe("eventFields validation", () => {
-    test("validates thank_you_url rejects javascript: protocol", () => {
-      expectInvalid("URL must use https://")(
-        eventFields,
-        eventForm({ thank_you_url: "javascript:alert(1)" }),
-      );
-    });
-
-    test("validates thank_you_url rejects http: protocol", () => {
-      expectInvalid("URL must use https://")(
-        eventFields,
-        eventForm({ thank_you_url: "http://example.com/thank-you" }),
-      );
-    });
-
-    test("validates thank_you_url rejects invalid URL", () => {
-      expectInvalid("Invalid URL format")(
-        eventFields,
-        eventForm({ thank_you_url: "not-a-valid-url" }),
-      );
-    });
-
-    test("validates thank_you_url accepts relative URLs", () => {
-      expectValid(eventFields, eventForm({ thank_you_url: "/thank-you" }));
-    });
-
-    test("validates unit_price rejects negative values", () => {
-      expectInvalid("Price must be 0 or greater")(
-        eventFields,
-        eventForm({ unit_price: "-100" }),
-      );
-    });
-
-    test("validates name is required", () => {
-      const { name: _, ...formWithoutName } = baseEventForm;
-      expectInvalid("Event Name is required")(eventFields, formWithoutName);
-    });
-
-    test("validates description rejects values exceeding max length", () => {
-      const longDescription = "a".repeat(129);
-      expectInvalid(
-        "Description must be 128 characters or fewer",
-      )(eventFields, eventForm({ description: longDescription }));
-    });
-
-    test("validates description accepts values within max length", () => {
-      expectValid(
-        eventFields,
-        eventForm({ description: "a".repeat(128) }),
-      );
-    });
-
-    test("validates description accepts empty value", () => {
-      expectValid(eventFields, eventForm({ description: "" }));
-    });
-  });
-
-  describe("ticketFields validation", () => {
-    test("validates email format", () => {
-      expectInvalid("Please enter a valid email address")(
-        ticketFields,
-        { name: "John Doe", email: "not-an-email" },
-      );
-    });
-
-    test("accepts valid email", () => {
-      expectValid(ticketFields, { name: "John Doe", email: "john@example.com" });
-    });
-  });
-
   describe("renderField select type", () => {
     const colorSelect: Field = {
       name: "color",
@@ -357,138 +277,4 @@ describe("forms", () => {
     });
   });
 
-  describe("getTicketFields", () => {
-    test("returns name and email fields for email setting", () => {
-      const fields = getTicketFields("email");
-      expect(fields.length).toBe(2);
-      expect(fields[0]!.name).toBe("name");
-      expect(fields[1]!.name).toBe("email");
-    });
-
-    test("returns name and phone fields for phone setting", () => {
-      const fields = getTicketFields("phone");
-      expect(fields.length).toBe(2);
-      expect(fields[0]!.name).toBe("name");
-      expect(fields[1]!.name).toBe("phone");
-    });
-
-    test("returns name, email, and phone fields for both setting", () => {
-      const fields = getTicketFields("both");
-      expect(fields.length).toBe(3);
-      expect(fields[0]!.name).toBe("name");
-      expect(fields[1]!.name).toBe("email");
-      expect(fields[2]!.name).toBe("phone");
-    });
-
-    test("phone field has validation", () => {
-      const phoneField = getTicketFields("phone")[1]!;
-      expect(phoneField.validate).toBeDefined();
-      expect(phoneField.required).toBe(true);
-    });
-
-    test("email field has validation", () => {
-      const emailField = getTicketFields("email")[1]!;
-      expect(emailField.validate).toBeDefined();
-      expect(emailField.required).toBe(true);
-    });
-  });
-
-  describe("mergeEventFields", () => {
-    test("returns email for empty array", () => {
-      expect(mergeEventFields([])).toBe("email");
-    });
-
-    test("returns email when all events use email", () => {
-      expect(mergeEventFields(["email", "email", "email"])).toBe("email");
-    });
-
-    test("returns phone when all events use phone", () => {
-      expect(mergeEventFields(["phone", "phone"])).toBe("phone");
-    });
-
-    test("returns both when all events use both", () => {
-      expect(mergeEventFields(["both", "both"])).toBe("both");
-    });
-
-    test("returns both when events differ (email + phone)", () => {
-      expect(mergeEventFields(["email", "phone"])).toBe("both");
-    });
-
-    test("returns both when events differ (email + both)", () => {
-      expect(mergeEventFields(["email", "both"])).toBe("both");
-    });
-
-    test("returns both when events differ (phone + both)", () => {
-      expect(mergeEventFields(["phone", "both"])).toBe("both");
-    });
-
-    test("returns setting for single event", () => {
-      expect(mergeEventFields(["phone"])).toBe("phone");
-    });
-  });
-
-  describe("eventFields Contact Fields validation", () => {
-    test("validates fields select rejects invalid value", () => {
-      expectInvalid("Contact Fields must be email, phone, or both")(
-        eventFields,
-        eventForm({ fields: "invalid" }),
-      );
-    });
-
-    test("validates fields select accepts email", () => {
-      expectValid(eventFields, eventForm({ fields: "email" }));
-    });
-
-    test("validates fields select accepts phone", () => {
-      expectValid(eventFields, eventForm({ fields: "phone" }));
-    });
-
-    test("validates fields select accepts both", () => {
-      expectValid(eventFields, eventForm({ fields: "both" }));
-    });
-  });
-
-  describe("phone ticket fields validation", () => {
-    test("validates phone is required for phone-only events", () => {
-      expectInvalid("Your Phone Number is required")(
-        getTicketFields("phone"),
-        { name: "John Doe", phone: "" },
-      );
-    });
-
-    test("validates phone format for phone-only events", () => {
-      expectInvalid("Please enter a valid phone number")(
-        getTicketFields("phone"),
-        { name: "John Doe", phone: "abc" },
-      );
-    });
-
-    test("accepts valid phone for phone-only events", () => {
-      expectValid(getTicketFields("phone"), { name: "John Doe", phone: "+1 555 123 4567" });
-    });
-
-    test("validates both email and phone for both setting", () => {
-      expectValid(getTicketFields("both"), {
-        name: "John Doe",
-        email: "john@example.com",
-        phone: "+1 555 123 4567",
-      });
-    });
-
-    test("rejects missing phone for both setting", () => {
-      expectInvalidForm(getTicketFields("both"), {
-        name: "John Doe",
-        email: "john@example.com",
-        phone: "",
-      });
-    });
-
-    test("rejects missing email for both setting", () => {
-      expectInvalidForm(getTicketFields("both"), {
-        name: "John Doe",
-        email: "",
-        phone: "+1 555 123 4567",
-      });
-    });
-  });
 });

@@ -15,7 +15,7 @@ import {
   updateSquareLocationId,
   updateSquareWebhookSignatureKey,
 } from "#lib/db/settings.ts";
-import { createTestDb, resetDb, testEvent, withMocks } from "#test-utils";
+import { createTestDb, resetDb, withMocks } from "#test-utils";
 
 /** Create a mock Square SDK client with spyable methods */
 const createMockClient = () => {
@@ -451,10 +451,7 @@ describe("square", () => {
       await withMocks(
         () => spyOn(squareApi, "getSquareClient").mockResolvedValue(client),
         async () => {
-          const event = testEvent({
-            unit_price: 1000,
-            fields: "email" as const,
-          });
+          const event = { id: 1, name: "Test Event", description: "desc", slug: "test", slug_index: "test_idx", created: new Date().toISOString(), max_attendees: 100, thank_you_url: null, unit_price: 1000, max_quantity: 10, webhook_url: null, active: 1, fields: "email" as const, closes_at: null };
           const intent = {
             eventId: 1,
             name: "John",

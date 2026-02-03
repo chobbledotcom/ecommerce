@@ -8,7 +8,7 @@
 
 import { getPaymentProvider as getConfiguredProvider } from "#lib/config.ts";
 import { logDebug } from "#lib/logger.ts";
-import type { Event } from "#lib/types.ts";
+import type { Event, PaymentSession } from "#lib/types.ts";
 
 /** Stubbable API for internal calls (testable via spyOn, like stripeApi/squareApi) */
 export const paymentsApi = {
@@ -150,7 +150,22 @@ export interface PaymentProvider {
 
   /** The webhook event type name that indicates a completed checkout */
   readonly checkoutCompletedEventType: string;
+
+  /**
+   * List recent checkout sessions/orders from the provider.
+   * Used for the admin orders page.
+   */
+  listSessions(params: {
+    limit: number;
+    startingAfter?: string;
+  }): Promise<PaymentSessionListResult>;
 }
+
+/** Result of listing payment sessions */
+export type PaymentSessionListResult = {
+  sessions: PaymentSession[];
+  hasMore: boolean;
+};
 
 /**
  * Resolve the active payment provider based on admin settings.
