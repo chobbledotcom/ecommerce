@@ -29,7 +29,7 @@ export const reservationsTable = defineTable<Reservation, ReservationInput>({
     quantity: col.simple<number>(),
     provider_session_id: col.simple<string>(),
     status: col.withDefault<ReservationStatus>(() => "pending"),
-    created: col.withDefault(() => new Date().toISOString()),
+    created: col.timestamp(),
   },
 });
 
@@ -76,55 +76,48 @@ export const reserveStock = async (
   return Number(result.lastInsertRowid);
 };
 
+/** Transition reservations matching a WHERE clause to a new status. */
+const transitionStatus = async (
+  newStatus: ReservationStatus,
+  whereClause: string,
+  args: (string | number)[],
+): Promise<number> => {
+  const result = await getDb().execute({
+    sql: `UPDATE stock_reservations SET status = '${newStatus}' WHERE ${whereClause}`,
+    args,
+  });
+  return result.rowsAffected;
+};
+
 /**
  * Confirm reservations for a completed checkout session.
  * Updates all pending reservations with the given session ID to confirmed.
  * Returns the number of reservations confirmed.
  */
-export const confirmReservation = async (
+export const confirmReservation = (
   providerSessionId: string,
-): Promise<number> => {
-  const result = await getDb().execute({
-    sql: `UPDATE stock_reservations
-          SET status = 'confirmed'
-          WHERE provider_session_id = ? AND status = 'pending'`,
-    args: [providerSessionId],
-  });
-  return result.rowsAffected;
-};
+): Promise<number> =>
+  transitionStatus("confirmed", "provider_session_id = ? AND status = 'pending'", [providerSessionId]);
 
 /**
  * Expire reservations for a cancelled/expired checkout session.
  * Updates all pending reservations with the given session ID to expired.
  * Returns the number of reservations expired.
  */
-export const expireReservation = async (
+export const expireReservation = (
   providerSessionId: string,
-): Promise<number> => {
-  const result = await getDb().execute({
-    sql: `UPDATE stock_reservations
-          SET status = 'expired'
-          WHERE provider_session_id = ? AND status = 'pending'`,
-    args: [providerSessionId],
-  });
-  return result.rowsAffected;
-};
+): Promise<number> =>
+  transitionStatus("expired", "provider_session_id = ? AND status = 'pending'", [providerSessionId]);
 
 /**
  * Expire stale pending reservations older than maxAgeMs milliseconds.
  * Returns the number of reservations expired.
  */
-export const expireStaleReservations = async (
+export const expireStaleReservations = (
   maxAgeMs: number,
 ): Promise<number> => {
   const cutoff = new Date(Date.now() - maxAgeMs).toISOString();
-  const result = await getDb().execute({
-    sql: `UPDATE stock_reservations
-          SET status = 'expired'
-          WHERE status = 'pending' AND created < ?`,
-    args: [cutoff],
-  });
-  return result.rowsAffected;
+  return transitionStatus("expired", "status = 'pending' AND created < ?", [cutoff]);
 };
 
 /**
@@ -132,17 +125,10 @@ export const expireStaleReservations = async (
  * This returns the reserved stock to the available pool.
  * Returns the number of reservations restocked.
  */
-export const restockFromRefund = async (
+export const restockFromRefund = (
   providerSessionId: string,
-): Promise<number> => {
-  const result = await getDb().execute({
-    sql: `UPDATE stock_reservations
-          SET status = 'expired'
-          WHERE provider_session_id = ? AND status = 'confirmed'`,
-    args: [providerSessionId],
-  });
-  return result.rowsAffected;
-};
+): Promise<number> =>
+  transitionStatus("expired", "provider_session_id = ? AND status = 'confirmed'", [providerSessionId]);
 
 /**
  * Get all reservations for a provider session ID.

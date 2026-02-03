@@ -35,7 +35,6 @@ describe("products", () => {
       expect(product.stock).toBe(0);
       expect(product.active).toBe(1);
       expect(product.description).toBe("");
-      expect(product.image_url).toBe("");
       expect(product.created).toBeDefined();
     });
 
@@ -47,13 +46,11 @@ describe("products", () => {
         unitPrice: 2500,
         stock: 50,
         active: 0,
-        imageUrl: "/images/gadget.jpg",
       });
 
       expect(product.description).toBe("A very red gadget");
       expect(product.stock).toBe(50);
       expect(product.active).toBe(0);
-      expect(product.image_url).toBe("/images/gadget.jpg");
     });
 
     test("enforces unique SKU constraint", async () => {

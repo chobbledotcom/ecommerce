@@ -33,7 +33,6 @@ import {
 import { getUserByUsername, verifyUserPassword } from "#lib/db/users.ts";
 import {
   createTestDbWithSetup,
-  invalidateTestDbCache,
   resetDb,
   TEST_ADMIN_PASSWORD,
   TEST_ADMIN_USERNAME,

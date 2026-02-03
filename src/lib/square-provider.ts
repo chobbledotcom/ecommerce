@@ -18,6 +18,7 @@ import {
   extractSessionMetadata,
   hasRequiredSessionMetadata,
   toCheckoutResult,
+  toSessionListResult,
 } from "#lib/payment-helpers.ts";
 import {
   createMultiPaymentLink,
@@ -27,8 +28,9 @@ import {
   searchOrders,
   verifyWebhookSignature,
 } from "#lib/square.ts";
-import type { Event, PaymentSession } from "#lib/types.ts";
+import type { Event } from "#lib/types.ts";
 import type {
+  ListSessionsParams,
   MultiRegistrationIntent,
   PaymentProvider,
   PaymentProviderType,
@@ -119,26 +121,19 @@ export const squarePaymentProvider: PaymentProvider = {
     });
   },
 
-  async listSessions(params: {
-    limit: number;
-    startingAfter?: string;
-  }): Promise<PaymentSessionListResult> {
+  async listSessions(params: ListSessionsParams): Promise<PaymentSessionListResult> {
     const result = await searchOrders({
       limit: params.limit,
       cursor: params.startingAfter,
     });
-    if (!result) return { sessions: [], hasMore: false };
-
-    const sessions: PaymentSession[] = result.orders.map((order) => ({
+    return toSessionListResult(result, result?.orders, (order) => ({
       id: order.id ?? "",
       status: order.state ?? "UNKNOWN",
-      amount: null, // Square doesn't include total in order search results
+      amount: null,
       currency: null,
-      customerEmail: null, // Square stores customer info separately
-      created: "", // Would need to be extracted from order
+      customerEmail: null,
+      created: "",
       url: null,
     }));
-
-    return { sessions, hasMore: result.hasMore };
   },
 };

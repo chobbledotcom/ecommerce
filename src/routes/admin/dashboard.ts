@@ -19,7 +19,7 @@ export const loginResponse = (error?: string, status = 200) =>
 const handleAdminGet = (request: Request): Promise<Response> =>
   withSession(
     request,
-    async (session) =>
+    (session) =>
       htmlResponse(adminDashboardPage(session)),
     () => loginResponse(),
   );

@@ -83,6 +83,12 @@ export type WebhookEvent = {
   };
 };
 
+/** Parameters for listing payment sessions */
+export type ListSessionsParams = {
+  limit: number;
+  startingAfter?: string;
+};
+
 /** Result of webhook endpoint setup */
 export type WebhookSetupResult =
   | { success: true; endpointId: string; secret: string }
@@ -155,10 +161,7 @@ export interface PaymentProvider {
    * List recent checkout sessions/orders from the provider.
    * Used for the admin orders page.
    */
-  listSessions(params: {
-    limit: number;
-    startingAfter?: string;
-  }): Promise<PaymentSessionListResult>;
+  listSessions(params: ListSessionsParams): Promise<PaymentSessionListResult>;
 }
 
 /** Result of listing payment sessions */

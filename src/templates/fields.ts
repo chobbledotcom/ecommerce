@@ -3,36 +3,6 @@
  */
 
 import type { Field } from "#lib/forms.tsx";
-import type { EventFields } from "#lib/types.ts";
-
-/**
- * Validate URL is safe (https or relative path, no javascript: etc.)
- */
-const validateSafeUrl = (value: string): string | null => {
-  // Allow relative URLs starting with /
-  if (value.startsWith("/")) return null;
-
-  try {
-    const url = new URL(value);
-    if (url.protocol !== "https:") {
-      return "URL must use https://";
-    }
-    return null;
-  } catch {
-    return "Invalid URL format";
-  }
-};
-
-/**
- * Validate price is non-negative
- */
-const validateNonNegativePrice = (value: string): string | null => {
-  const num = Number.parseInt(value, 10);
-  if (Number.isNaN(num) || num < 0) {
-    return "Price must be 0 or greater";
-  }
-  return null;
-};
 
 /**
  * Validate email format

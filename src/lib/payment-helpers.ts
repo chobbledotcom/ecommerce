@@ -9,9 +9,11 @@ import { logDebug, logError } from "#lib/logger.ts";
 import type {
   CheckoutSessionResult,
   MultiRegistrationIntent,
+  PaymentSessionListResult,
   SessionMetadata,
   ValidatedPaymentSession,
 } from "#lib/payments.ts";
+import type { PaymentSession } from "#lib/types.ts";
 
 /** Safely execute async operation, returning null on error */
 export const safeAsync = async <T>(
@@ -126,3 +128,16 @@ export const extractSessionMetadata = (
   multi: metadata.multi,
   items: metadata.items,
 });
+
+/**
+ * Build a PaymentSessionListResult from a nullable provider result.
+ * Handles the common null-check and mapping pattern for both providers.
+ */
+export const toSessionListResult = <T>(
+  result: { hasMore: boolean } & Record<string, unknown> | null,
+  items: T[] | undefined,
+  mapFn: (item: T) => PaymentSession,
+): PaymentSessionListResult => {
+  if (!result || !items) return { sessions: [], hasMore: false };
+  return { sessions: items.map(mapFn), hasMore: result.hasMore };
+};

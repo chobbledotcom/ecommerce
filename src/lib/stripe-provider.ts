@@ -10,8 +10,10 @@ import {
   extractSessionMetadata,
   hasRequiredSessionMetadata,
   toCheckoutResult,
+  toSessionListResult,
 } from "#lib/payment-helpers.ts";
 import type {
+  ListSessionsParams,
   MultiRegistrationIntent,
   PaymentProvider,
   PaymentProviderType,
@@ -22,7 +24,6 @@ import type {
   WebhookSetupResult,
   WebhookVerifyResult,
 } from "#lib/payments.ts";
-import type { PaymentSession } from "#lib/types.ts";
 import {
   createCheckoutSessionWithIntent,
   createMultiCheckoutSession,
@@ -104,14 +105,9 @@ export const stripePaymentProvider: PaymentProvider = {
     return setupWebhookEndpoint(secretKey, webhookUrl, existingEndpointId);
   },
 
-  async listSessions(params: {
-    limit: number;
-    startingAfter?: string;
-  }): Promise<PaymentSessionListResult> {
+  async listSessions(params: ListSessionsParams): Promise<PaymentSessionListResult> {
     const result = await listCheckoutSessions(params);
-    if (!result) return { sessions: [], hasMore: false };
-
-    const sessions: PaymentSession[] = result.sessions.map((s) => ({
+    return toSessionListResult(result, result?.sessions, (s) => ({
       id: s.id,
       status: s.payment_status,
       amount: s.amount_total ?? null,
@@ -120,7 +116,5 @@ export const stripePaymentProvider: PaymentProvider = {
       created: new Date(s.created * 1000).toISOString(),
       url: s.url ?? null,
     }));
-
-    return { sessions, hasMore: result.hasMore };
   },
 };

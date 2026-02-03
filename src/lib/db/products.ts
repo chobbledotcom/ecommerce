@@ -14,7 +14,6 @@ export type ProductInput = {
   unitPrice: number;
   stock?: number;
   active?: number;
-  imageUrl?: string;
   created?: string;
 };
 
@@ -29,8 +28,7 @@ export const productsTable = defineTable<Product, ProductInput>({
     unit_price: col.simple<number>(),
     stock: col.withDefault(() => 0),
     active: col.withDefault(() => 1),
-    image_url: col.withDefault(() => ""),
-    created: col.withDefault(() => new Date().toISOString()),
+    created: col.timestamp(),
   },
 });
 

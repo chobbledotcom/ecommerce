@@ -14,21 +14,9 @@
  */
 
 import {
-  finalizeSession,
-  reserveSession,
-} from "#lib/db/processed-payments.ts";
-import { ErrorCode, logError } from "#lib/logger.ts";
-import {
   getActivePaymentProvider,
-  type SessionMetadata,
-  type ValidatedPaymentSession,
-  type WebhookEvent,
 } from "#lib/payments.ts";
 import { createRouter, defineRoutes } from "#routes/router.ts";
-import {
-  getSearchParam,
-  jsonErrorResponse,
-} from "#routes/utils.ts";
 
 /** JSON response acknowledging a webhook event without processing */
 const webhookAckResponse = (extra?: Record<string, unknown>): Response =>
@@ -44,13 +32,6 @@ const getWebhookSignatureHeader = (
   request.headers.get("stripe-signature") ??
   request.headers.get("x-square-hmacsha256-signature") ??
   null;
-
-/** Extract order/session ID from webhook event object (used for Square fallback) */
-const extractSessionIdFromObject = (obj: Record<string, unknown>): string | null => {
-  if (typeof obj.order_id === "string") return obj.order_id;
-  if (typeof obj.id === "string") return obj.id;
-  return null;
-};
 
 /**
  * Handle POST /payment/webhook (payment provider webhook endpoint)

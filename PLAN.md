@@ -59,7 +59,6 @@ CREATE TABLE products (
     unit_price INTEGER NOT NULL,          -- in smallest currency unit (pence/cents)
     stock INTEGER NOT NULL DEFAULT 0,     -- 0 = out of stock, -1 = unlimited
     active INTEGER NOT NULL DEFAULT 1,    -- 0 = hidden from catalog
-    image_url TEXT NOT NULL DEFAULT '',
     created TEXT NOT NULL
 );
 

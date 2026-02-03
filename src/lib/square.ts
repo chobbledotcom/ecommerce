@@ -225,6 +225,28 @@ export type SquareOrderListResult = {
   cursor?: string;
 };
 
+// deno-lint-ignore no-explicit-any
+const toSquareOrder = (order: any): SquareOrder => {
+  const metadata: Record<string, string> | undefined = order.metadata
+    ? Object.fromEntries(
+        Object.entries(order.metadata).filter(
+          (entry): entry is [string, string] =>
+            typeof entry[1] === "string",
+        ),
+      )
+    : undefined;
+
+  return {
+    id: order.id,
+    metadata,
+    tenders: order.tenders?.map((t: { id?: string; paymentId?: string | null }) => ({
+      id: t.id,
+      paymentId: t.paymentId ?? undefined,
+    })),
+    state: order.state,
+  };
+};
+
 export const squareApi: {
   getSquareClient: () => ReturnType<typeof getClientImpl>;
   resetSquareClient: () => void;
@@ -325,28 +347,7 @@ export const squareApi: {
     withClient(
       async (client) => {
         const response = await client.orders.get({ orderId });
-        const order = response.order;
-        if (!order) return null;
-
-        // Convert nullable metadata values to plain string record
-        const metadata: Record<string, string> | undefined = order.metadata
-          ? Object.fromEntries(
-              Object.entries(order.metadata).filter(
-                (entry): entry is [string, string] =>
-                  typeof entry[1] === "string",
-              ),
-            )
-          : undefined;
-
-        return {
-          id: order.id,
-          metadata,
-          tenders: order.tenders?.map((t) => ({
-            id: t.id,
-            paymentId: t.paymentId ?? undefined,
-          })),
-          state: order.state,
-        };
+        return response.order ? toSquareOrder(response.order) : null;
       },
       ErrorCode.SQUARE_ORDER,
     ),
@@ -369,26 +370,7 @@ export const squareApi: {
           },
         });
 
-        const orders: SquareOrder[] = (response.orders ?? []).map((order) => {
-          const metadata: Record<string, string> | undefined = order.metadata
-            ? Object.fromEntries(
-                Object.entries(order.metadata).filter(
-                  (entry): entry is [string, string] =>
-                    typeof entry[1] === "string",
-                ),
-              )
-            : undefined;
-
-          return {
-            id: order.id,
-            metadata,
-            tenders: order.tenders?.map((t) => ({
-              id: t.id,
-              paymentId: t.paymentId ?? undefined,
-            })),
-            state: order.state,
-          };
-        });
+        const orders: SquareOrder[] = (response.orders ?? []).map(toSquareOrder);
 
         return {
           orders,

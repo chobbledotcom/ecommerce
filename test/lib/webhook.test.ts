@@ -8,7 +8,6 @@ import {
   type WebhookEvent,
   type WebhookPayload,
 } from "#lib/webhook.ts";
-import { createTestDbWithSetup, resetDb } from "#test-utils";
 
 /** Helper to build a WebhookEvent with sensible defaults */
 const makeEvent = (overrides: Partial<WebhookEvent> = {}): WebhookEvent => ({

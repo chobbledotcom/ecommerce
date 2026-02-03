@@ -11,7 +11,6 @@ export interface Product {
   unit_price: number; // in smallest currency unit (pence/cents)
   stock: number; // 0 = out of stock, -1 = unlimited
   active: number; // 0 = hidden from catalog
-  image_url: string;
   created: string;
 }
 

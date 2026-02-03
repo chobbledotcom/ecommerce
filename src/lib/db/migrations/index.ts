@@ -290,7 +290,6 @@ export const initDb = async (): Promise<void> => {
       unit_price INTEGER NOT NULL,
       stock INTEGER NOT NULL DEFAULT 0,
       active INTEGER NOT NULL DEFAULT 1,
-      image_url TEXT NOT NULL DEFAULT '',
       created TEXT NOT NULL
     )
   `);

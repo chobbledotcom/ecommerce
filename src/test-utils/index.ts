@@ -637,7 +637,7 @@ let testProductCounter = 0;
  * Create a test product with sensible defaults.
  * Auto-generates unique SKU if not provided.
  */
-export const createTestProduct = async (
+export const createTestProduct = (
   overrides: Partial<ProductInput> = {},
 ): Promise<Product> => {
   testProductCounter++;
