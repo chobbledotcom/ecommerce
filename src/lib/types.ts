@@ -27,27 +27,6 @@ export interface Reservation {
   created: string;
 }
 
-/** Legacy Event type — retained for payment provider compatibility */
-export interface Event {
-  id: number;
-  name: string;
-  description: string;
-  slug: string;
-  slug_index: string;
-  created: string;
-  max_attendees: number;
-  thank_you_url: string | null;
-  unit_price: number | null;
-  max_quantity: number;
-  webhook_url: string | null;
-  active: number;
-  fields: EventFields;
-  closes_at: string | null;
-}
-
-/** Contact fields setting for an event */
-export type EventFields = "email" | "phone" | "both";
-
 export interface Settings {
   key: string;
   value: string;

@@ -1,73 +1,28 @@
 /**
- * Square integration module for ticket payments
+ * Square API wrapper module
  * Uses lazy loading to avoid importing the Square SDK at startup
  *
  * Square flow differs from Stripe:
- * - Checkout uses Payment Links (CreatePaymentLink) instead of sessions
- * - Metadata is stored on the Order object
  * - Webhook event is payment.updated (check status === "COMPLETED")
  * - Webhook signature uses HMAC-SHA256 of notification_url + body
- * - Retrieving session data requires fetching the Order by ID
  */
 
-import type { Square } from "square";
-import { lazyRef, map, once } from "#fp";
+import { lazyRef, once } from "#fp";
 import {
-  getCurrencyCode,
   getSquareAccessToken,
   getSquareLocationId,
   getSquareWebhookSignatureKey,
 } from "#lib/config.ts";
 import { ErrorCode, logDebug, logError } from "#lib/logger.ts";
 import {
-  buildMultiIntentMetadata,
-  buildSingleIntentMetadata,
   createWithClient,
 } from "#lib/payment-helpers.ts";
 
 import { computeHmacSha256, hmacToBase64, secureCompare } from "#lib/payment-crypto.ts";
 import type {
-  MultiRegistrationIntent,
-  RegistrationIntent,
   WebhookEvent,
   WebhookVerifyResult,
 } from "#lib/payments.ts";
-import type { Event } from "#lib/types.ts";
-
-/**
- * Square order metadata constraints (from Square API docs):
- * - Max 10 entries per metadata field
- * - Key max 60 characters
- * - Value max 255 characters
- */
-const SQUARE_METADATA_MAX_VALUE_LENGTH = 255;
-
-/**
- * Enforce Square metadata value length limits.
- * Truncates `name` (display-only, safe to shorten).
- * Returns null if any non-truncatable value (like `items` JSON) exceeds the limit,
- * since truncating structured data would cause downstream parse failures.
- */
-export const enforceMetadataLimits = (
-  metadata: Record<string, string>,
-): Record<string, string> | null => {
-  for (const [key, value] of Object.entries(metadata)) {
-    if (value.length <= SQUARE_METADATA_MAX_VALUE_LENGTH) continue;
-    if (key === "name") continue; // handled below
-    logError({
-      code: ErrorCode.SQUARE_CHECKOUT,
-      detail: `Metadata value for "${key}" exceeds ${SQUARE_METADATA_MAX_VALUE_LENGTH} chars (${value.length})`,
-    });
-    return null;
-  }
-
-  const name = metadata.name;
-  if (name && name.length > SQUARE_METADATA_MAX_VALUE_LENGTH) {
-    return { ...metadata, name: name.slice(0, SQUARE_METADATA_MAX_VALUE_LENGTH) };
-  }
-
-  return metadata;
-};
 
 /** Lazy-load Square SDK only when needed */
 const loadSquare = once(async () => {
@@ -123,17 +78,6 @@ const getLocationId = async (): Promise<string | null> => {
   return locationId;
 };
 
-/** Resolved location and currency for payment link creation */
-type PaymentLinkConfig = { locationId: string; currency: Square.Currency };
-
-/** Get location ID and currency, returning null if location is not configured */
-const getPaymentLinkConfig = async (): Promise<PaymentLinkConfig | null> => {
-  const locationId = await getLocationId();
-  if (!locationId) return null;
-  const currency = (await getCurrencyCode()).toUpperCase() as Square.Currency;
-  return { locationId, currency };
-};
-
 /** Square order response shape (subset we use) */
 type SquareOrder = {
   id?: string;
@@ -155,65 +99,6 @@ type SquarePayment = {
     currency?: string;
   };
 };
-
-/** Result of creating a payment link */
-export type PaymentLinkResult = {
-  orderId: string;
-  url: string;
-} | null;
-
-/** Common parameters for creating a payment link */
-type PaymentLinkParams = {
-  locationId: string;
-  currency: Square.Currency;
-  lineItems: Array<{
-    name: string;
-    quantity: string;
-    note: string;
-    basePriceMoney: { amount: bigint; currency: Square.Currency };
-  }>;
-  metadata: Record<string, string>;
-  baseUrl: string;
-  email: string;
-  phone?: string;
-  label: string;
-};
-
-/** Create a payment link via Square Checkout API */
-const createPaymentLinkImpl = (
-  params: PaymentLinkParams,
-): Promise<PaymentLinkResult> =>
-  withClient(
-    async (client) => {
-      const response = await client.checkout.paymentLinks.create({
-        idempotencyKey: crypto.randomUUID(),
-        order: {
-          locationId: params.locationId,
-          lineItems: params.lineItems,
-          metadata: params.metadata,
-        },
-        checkoutOptions: {
-          redirectUrl: `${params.baseUrl}/payment/success?session_id={ORDER_ID}`,
-        },
-        prePopulatedData: {
-          buyerEmail: params.email,
-          ...(params.phone ? { buyerPhoneNumber: params.phone } : {}),
-        },
-      });
-
-      const link = response.paymentLink;
-      const orderId = link?.orderId;
-      const url = link?.url;
-
-      if (!orderId || !url) {
-        logDebug("Square", `${params.label} response missing orderId or url`);
-        return null;
-      }
-
-      return { orderId, url };
-    },
-    ErrorCode.SQUARE_CHECKOUT,
-  );
 
 /**
  * Stubbable API for testing - allows mocking in ES modules
@@ -250,16 +135,6 @@ const toSquareOrder = (order: any): SquareOrder => {
 export const squareApi: {
   getSquareClient: () => ReturnType<typeof getClientImpl>;
   resetSquareClient: () => void;
-  createPaymentLink: (
-    event: Event,
-    intent: RegistrationIntent,
-    baseUrl: string,
-  ) => Promise<PaymentLinkResult>;
-  createMultiPaymentLink: (
-    intent: MultiRegistrationIntent,
-    baseUrl: string,
-  ) => Promise<PaymentLinkResult>;
-  retrieveOrder: (orderId: string) => Promise<SquareOrder | null>;
   searchOrders: (params: { limit: number; cursor?: string }) => Promise<SquareOrderListResult | null>;
   retrievePayment: (paymentId: string) => Promise<SquarePayment | null>;
   refundPayment: (paymentId: string) => Promise<boolean>;
@@ -267,90 +142,6 @@ export const squareApi: {
   getSquareClient: getClientImpl,
 
   resetSquareClient: (): void => setCache(null),
-
-  /** Create a payment link for a single-event purchase */
-  createPaymentLink: async (
-    event: Event,
-    intent: RegistrationIntent,
-    baseUrl: string,
-  ): Promise<PaymentLinkResult> => {
-    if (event.unit_price === null) {
-      logDebug("Square", `No unit_price for event=${event.id}`);
-      return null;
-    }
-
-    const config = await getPaymentLinkConfig();
-    if (!config) return null;
-
-    logDebug("Square", `Creating payment link for event=${event.id} qty=${intent.quantity}`);
-
-    const metadata = enforceMetadataLimits(buildSingleIntentMetadata(event.id, intent));
-    if (!metadata) return null;
-
-    const result = await createPaymentLinkImpl({
-      ...config,
-      lineItems: [
-        {
-          name: `Ticket: ${event.name}`,
-          quantity: String(intent.quantity),
-          note: intent.quantity > 1 ? `${intent.quantity} Tickets` : "Ticket",
-          basePriceMoney: { amount: BigInt(event.unit_price!), currency: config.currency },
-        },
-      ],
-      metadata,
-      baseUrl,
-      email: intent.email,
-      phone: intent.phone || undefined,
-      label: "Payment link",
-    });
-
-    logDebug("Square", result ? `Payment link created orderId=${result.orderId}` : "Payment link creation failed");
-    return result;
-  },
-
-  /** Create a payment link for multi-event registration */
-  createMultiPaymentLink: async (
-    intent: MultiRegistrationIntent,
-    baseUrl: string,
-  ): Promise<PaymentLinkResult> => {
-    const config = await getPaymentLinkConfig();
-    if (!config) return null;
-
-    logDebug("Square", `Creating multi payment link for ${intent.items.length} events`);
-
-    const metadata = enforceMetadataLimits(buildMultiIntentMetadata(intent));
-    if (!metadata) return null;
-
-    const lineItems = map((item: MultiRegistrationIntent["items"][number]) => ({
-      name: `Ticket: ${item.name}`,
-      quantity: String(item.quantity),
-      note: item.quantity > 1 ? `${item.quantity} Tickets` : "Ticket",
-      basePriceMoney: { amount: BigInt(item.unitPrice), currency: config.currency },
-    }))(intent.items);
-
-    const result = await createPaymentLinkImpl({
-      ...config,
-      lineItems,
-      metadata,
-      baseUrl,
-      email: intent.email,
-      phone: intent.phone || undefined,
-      label: "Multi payment link",
-    });
-
-    logDebug("Square", result ? `Multi payment link created orderId=${result.orderId}` : "Multi payment link creation failed");
-    return result;
-  },
-
-  /** Retrieve an order by ID */
-  retrieveOrder: (orderId: string): Promise<SquareOrder | null> =>
-    withClient(
-      async (client) => {
-        const response = await client.orders.get({ orderId });
-        return response.order ? toSquareOrder(response.order) : null;
-      },
-      ErrorCode.SQUARE_ORDER,
-    ),
 
   /** Search orders (for listing in admin) */
   searchOrders: (
@@ -419,7 +210,7 @@ export const squareApi: {
           paymentId,
           amountMoney: {
             amount: payment.amountMoney!.amount,
-            currency: payment.amountMoney!.currency as Square.Currency,
+            currency: payment.amountMoney!.currency as import("square").Square.Currency,
           },
         });
         return true;
@@ -434,11 +225,6 @@ export const squareApi: {
 // Wrapper exports for production code (delegate to squareApi for test mocking)
 export const getSquareClient = () => squareApi.getSquareClient();
 export const resetSquareClient = () => squareApi.resetSquareClient();
-export const createPaymentLink = (e: Event, i: RegistrationIntent, b: string) =>
-  squareApi.createPaymentLink(e, i, b);
-export const createMultiPaymentLink = (i: MultiRegistrationIntent, b: string) =>
-  squareApi.createMultiPaymentLink(i, b);
-export const retrieveOrder = (id: string) => squareApi.retrieveOrder(id);
 export const searchOrders = (params: { limit: number; cursor?: string }) =>
   squareApi.searchOrders(params);
 export const retrievePayment = (id: string) => squareApi.retrievePayment(id);

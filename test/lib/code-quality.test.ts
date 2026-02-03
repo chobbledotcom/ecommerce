@@ -254,14 +254,16 @@ describe("code quality", () => {
       "lib/square.ts:resetSquareClient",
       // Test helper for creating signed Square webhook payloads
       "lib/square.ts:constructTestWebhookEvent",
-      // Convenience wrapper for idempotency checks (production uses isSessionProcessed directly)
-      "lib/db/processed-payments.ts:getProcessedAttendeeId",
       // Raw attendee fetch for testing encrypted data (production uses batched getEventWithAttendeesRaw)
       "lib/db/attendees.ts:getAttendeesRaw",
       // Single attendee fetch for tests (production uses batched getEventWithAttendeeRaw)
       "lib/db/attendees.ts:getAttendee",
-      // Event activity log fetch for tests (production uses batched getEventWithActivityLog)
-      "lib/db/activityLog.ts:getEventActivityLog",
+      // Currency code config - used in checkout routes added in Step 3
+      "lib/config.ts:getCurrencyCode",
+      // Hybrid encryption primitives - used in attendee PII encryption routes added in Step 3
+      "lib/crypto.ts:importPublicKey",
+      "lib/crypto.ts:hybridEncrypt",
+      "lib/crypto.ts:hybridDecrypt",
     ];
 
     /**

@@ -5,31 +5,19 @@
  * provider-agnostic PaymentProvider contract.
  */
 
-import type { Event } from "#lib/types.ts";
-import {
-  extractSessionMetadata,
-  hasRequiredSessionMetadata,
-  toCheckoutResult,
-  toSessionListResult,
-} from "#lib/payment-helpers.ts";
+import { toSessionListResult } from "#lib/payment-helpers.ts";
 import type {
   ListSessionsParams,
-  MultiRegistrationIntent,
   PaymentProvider,
   PaymentProviderType,
   PaymentSessionListResult,
-  RegistrationIntent,
-  ValidatedPaymentSession,
   WebhookEvent,
   WebhookSetupResult,
   WebhookVerifyResult,
 } from "#lib/payments.ts";
 import {
-  createCheckoutSessionWithIntent,
-  createMultiCheckoutSession,
   listCheckoutSessions,
   refundPayment as stripeRefund,
-  retrieveCheckoutSession,
   setupWebhookEndpoint,
   verifyWebhookSignature,
 } from "#lib/stripe.ts";
@@ -39,44 +27,6 @@ export const stripePaymentProvider: PaymentProvider = {
   type: "stripe" as PaymentProviderType,
 
   checkoutCompletedEventType: "checkout.session.completed",
-
-  async createCheckoutSession(
-    event: Event,
-    intent: RegistrationIntent,
-    baseUrl: string,
-  ) {
-    const session = await createCheckoutSessionWithIntent(event, intent, baseUrl);
-    return toCheckoutResult(session?.id, session?.url, "Stripe");
-  },
-
-  async createMultiCheckoutSession(
-    intent: MultiRegistrationIntent,
-    baseUrl: string,
-  ) {
-    const session = await createMultiCheckoutSession(intent, baseUrl);
-    return toCheckoutResult(session?.id, session?.url, "Stripe");
-  },
-
-  async retrieveSession(
-    sessionId: string,
-  ): Promise<ValidatedPaymentSession | null> {
-    const session = await retrieveCheckoutSession(sessionId);
-    if (!session) return null;
-
-    const { id, payment_status, payment_intent, metadata } = session;
-
-    if (!hasRequiredSessionMetadata(metadata)) {
-      return null;
-    }
-
-    return {
-      id,
-      paymentStatus: payment_status as ValidatedPaymentSession["paymentStatus"],
-      paymentReference:
-        typeof payment_intent === "string" ? payment_intent : null,
-      metadata: extractSessionMetadata(metadata),
-    };
-  },
 
   async verifyWebhookSignature(
     payload: string,

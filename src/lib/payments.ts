@@ -8,7 +8,7 @@
 
 import { getPaymentProvider as getConfiguredProvider } from "#lib/config.ts";
 import { logDebug } from "#lib/logger.ts";
-import type { Event, PaymentSession } from "#lib/types.ts";
+import type { PaymentSession } from "#lib/types.ts";
 
 /** Stubbable API for internal calls (testable via spyOn, like stripeApi/squareApi) */
 export const paymentsApi = {
@@ -18,56 +18,11 @@ export const paymentsApi = {
 /** Supported payment provider identifiers */
 export type PaymentProviderType = "stripe" | "square";
 
-/** Registration intent for a single event checkout */
-export type RegistrationIntent = {
-  eventId: number;
-  name: string;
-  email: string;
-  phone: string;
-  quantity: number;
-};
-
-/** Single item within a multi-event checkout */
-export type MultiRegistrationItem = {
-  eventId: number;
-  quantity: number;
-  unitPrice: number;
-  slug: string;
-  name: string;
-};
-
-/** Registration intent for multi-event checkout */
-export type MultiRegistrationIntent = {
-  name: string;
-  email: string;
-  phone: string;
-  items: MultiRegistrationItem[];
-};
-
 /** Result of creating a checkout session */
 export type CheckoutSessionResult = {
   sessionId: string;
   checkoutUrl: string;
 } | null;
-
-/** Metadata attached to a validated payment session */
-export type SessionMetadata = {
-  event_id?: string;
-  name: string;
-  email: string;
-  phone?: string;
-  quantity?: string;
-  multi?: string;
-  items?: string;
-};
-
-/** A validated payment session returned after checkout completion */
-export type ValidatedPaymentSession = {
-  id: string;
-  paymentStatus: "paid" | "unpaid" | "no_payment_required";
-  paymentReference: string | null;
-  metadata: SessionMetadata;
-};
 
 /** Result of webhook signature verification */
 export type WebhookVerifyResult =
@@ -103,31 +58,6 @@ export type WebhookSetupResult =
 export interface PaymentProvider {
   /** Provider identifier */
   readonly type: PaymentProviderType;
-
-  /**
-   * Create a checkout session for a single-event purchase.
-   * Returns a session ID and hosted checkout URL, or null on failure.
-   */
-  createCheckoutSession(
-    event: Event,
-    intent: RegistrationIntent,
-    baseUrl: string,
-  ): Promise<CheckoutSessionResult>;
-
-  /**
-   * Create a checkout session for a multi-event purchase.
-   * Returns a session ID and hosted checkout URL, or null on failure.
-   */
-  createMultiCheckoutSession(
-    intent: MultiRegistrationIntent,
-    baseUrl: string,
-  ): Promise<CheckoutSessionResult>;
-
-  /**
-   * Retrieve and validate a completed checkout session by ID.
-   * Returns the validated session or null if not found / invalid.
-   */
-  retrieveSession(sessionId: string): Promise<ValidatedPaymentSession | null>;
 
   /**
    * Verify a webhook request's signature and parse the event payload.

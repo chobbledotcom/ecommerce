@@ -44,7 +44,7 @@ describe("processed-payments", () => {
   });
 
   describe("deleteStaleReservation", () => {
-    test("deletes reservation with null attendee_id", async () => {
+    test("deletes existing reservation", async () => {
       await reserveSession("cs_stale_to_delete");
 
       // Verify it exists
@@ -80,7 +80,7 @@ describe("processed-payments", () => {
       // Should fail (reservation is fresh, still being processed)
       expect(result.reserved).toBe(false);
       if (!result.reserved) {
-        expect(result.existing.attendee_id).toBeNull();
+        expect(result.existing.payment_session_id).toBe("cs_fresh_unfinalized");
       }
     });
 
@@ -96,7 +96,7 @@ describe("processed-payments", () => {
 
       // First, manually insert the record
       await getDb().execute({
-        sql: "INSERT INTO processed_payments (payment_session_id, attendee_id, processed_at) VALUES (?, NULL, ?)",
+        sql: "INSERT INTO processed_payments (payment_session_id, processed_at) VALUES (?, ?)",
         args: [sessionId, new Date().toISOString()],
       });
 

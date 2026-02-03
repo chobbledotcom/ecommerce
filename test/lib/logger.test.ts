@@ -10,20 +10,6 @@ import {
 
 describe("logger", () => {
   describe("redactPath", () => {
-    test("redacts ticket slugs", () => {
-      expect(redactPath("/ticket/summer-concert-2024")).toBe(
-        "/ticket/[redacted]",
-      );
-    });
-
-    test("redacts simple ticket slugs", () => {
-      expect(redactPath("/ticket/abc")).toBe("/ticket/[redacted]");
-    });
-
-    test("preserves /ticket without slug", () => {
-      expect(redactPath("/ticket")).toBe("/ticket");
-    });
-
     test("redacts numeric IDs in admin paths", () => {
       expect(redactPath("/admin/events/123")).toBe("/admin/events/[id]");
     });
@@ -65,13 +51,13 @@ describe("logger", () => {
     test("logs request with redacted path", () => {
       logRequest({
         method: "GET",
-        path: "/ticket/my-event",
+        path: "/admin/products/42",
         status: 200,
         durationMs: 42,
       });
 
       expect(debugSpy).toHaveBeenCalledWith(
-        "[Request] GET /ticket/[redacted] 200 42ms",
+        "[Request] GET /admin/products/[id] 200 42ms",
       );
     });
 
@@ -117,20 +103,6 @@ describe("logger", () => {
       expect(errorSpy).toHaveBeenCalledWith("[Error] E_DB_CONNECTION");
     });
 
-    test("logs error with event ID", () => {
-      logError({ code: ErrorCode.CAPACITY_EXCEEDED, eventId: 42 });
-
-      expect(errorSpy).toHaveBeenCalledWith(
-        "[Error] E_CAPACITY_EXCEEDED event=42",
-      );
-    });
-
-    test("logs error with attendee ID", () => {
-      logError({ code: ErrorCode.WEBHOOK_SEND, attendeeId: 99 });
-
-      expect(errorSpy).toHaveBeenCalledWith("[Error] E_WEBHOOK_SEND attendee=99");
-    });
-
     test("logs error with detail", () => {
       logError({ code: ErrorCode.STRIPE_SIGNATURE, detail: "mismatch" });
 
@@ -139,16 +111,14 @@ describe("logger", () => {
       );
     });
 
-    test("logs error with all context", () => {
+    test("logs error with code and detail", () => {
       logError({
-        code: ErrorCode.NOT_FOUND_EVENT,
-        eventId: 1,
-        attendeeId: 2,
+        code: ErrorCode.NOT_FOUND_PRODUCT,
         detail: "inactive",
       });
 
       expect(errorSpy).toHaveBeenCalledWith(
-        '[Error] E_NOT_FOUND_EVENT event=1 attendee=2 detail="inactive"',
+        '[Error] E_NOT_FOUND_PRODUCT detail="inactive"',
       );
     });
   });

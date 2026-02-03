@@ -24,10 +24,8 @@ type CompiledRoute = {
 
 /** Param patterns by type - name ending determines pattern */
 const getParamPattern = (name: string): string => {
-  // Params ending in Id match digits only (e.g., eventId, attendeeId)
+  // Params ending in Id match digits only (e.g., productId)
   if (name.endsWith("Id") || name === "id") return "(\\d+)";
-  // Slugs match lowercase alphanumeric with hyphens
-  if (name === "slug") return "([a-z0-9]+(?:-[a-z0-9]+)*)";
   // Default: match any non-slash characters
   return "([^/]+)";
 };
@@ -38,8 +36,7 @@ const getParamPattern = (name: string): string => {
  * All paths are normalized to strip trailing slashes before matching
  * Examples:
  *   "GET /admin" -> matches /admin
- *   "GET /admin/event/:id" -> extracts id param from /admin/event/123
- *   "GET /ticket/:slug" -> extracts slug param like /ticket/my-event-2024
+ *   "GET /admin/product/:id" -> extracts id param from /admin/product/123
  */
 const compilePattern = (
   pattern: string,

@@ -43,38 +43,19 @@ export const activityLogTable = defineTable<ActivityLogEntry, ActivityLogInput>(
 /**
  * Log an activity
  */
-export const logActivity = (
-  message: string,
-  eventId?: number | null,
-): Promise<ActivityLogEntry> =>
-  activityLogTable.insert({ message, eventId: eventId ?? null });
-
-/** Query activity log with optional event filter, decrypts messages */
-const queryActivityLog = async (
-  eventId: number | null,
-  limit: number,
-): Promise<ActivityLogEntry[]> => {
-  const whereClause = eventId !== null ? "WHERE event_id = ?" : "";
-  const args = eventId !== null ? [eventId, limit] : [limit];
-  const result = await getDb().execute({
-    sql: `SELECT * FROM activity_log ${whereClause} ORDER BY created DESC, id DESC LIMIT ?`,
-    args,
-  });
-  const rows = result.rows as unknown as ActivityLogEntry[];
-  return Promise.all(rows.map((row) => activityLogTable.fromDb(row)));
-};
-
-/**
- * Get activity log entries for an event (most recent first)
- */
-export const getEventActivityLog = (
-  eventId: number,
-  limit = 100,
-): Promise<ActivityLogEntry[]> => queryActivityLog(eventId, limit);
+export const logActivity = (message: string): Promise<ActivityLogEntry> =>
+  activityLogTable.insert({ message, eventId: null });
 
 /**
  * Get all activity log entries (most recent first)
  */
-export const getAllActivityLog = (limit = 100): Promise<ActivityLogEntry[]> =>
-  queryActivityLog(null, limit);
-
+export const getAllActivityLog = async (
+  limit = 100,
+): Promise<ActivityLogEntry[]> => {
+  const result = await getDb().execute({
+    sql: "SELECT * FROM activity_log ORDER BY created DESC, id DESC LIMIT ?",
+    args: [limit],
+  });
+  const rows = result.rows as unknown as ActivityLogEntry[];
+  return Promise.all(rows.map((row) => activityLogTable.fromDb(row)));
+};
