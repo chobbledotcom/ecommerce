@@ -13,9 +13,18 @@
  * - Two-phase locking via processed_payments prevents duplicate processing
  */
 
+import { map } from "#fp";
+import { getCurrencyCode } from "#lib/config.ts";
+import { getDb } from "#lib/db/client.ts";
+import { reserveSession } from "#lib/db/processed-payments.ts";
+import { confirmReservation, expireReservation, getReservationsBySession, restockFromRefund } from "#lib/db/reservations.ts";
+import { getSetting } from "#lib/db/settings.ts";
+import { logDebug } from "#lib/logger.ts";
 import {
   getActivePaymentProvider,
 } from "#lib/payments.ts";
+import type { Product, Reservation } from "#lib/types.ts";
+import { logAndNotifyOrder, type WebhookLineItem } from "#lib/webhook.ts";
 import { createRouter, defineRoutes } from "#routes/router.ts";
 
 /** JSON response acknowledging a webhook event without processing */
@@ -33,6 +42,40 @@ const getWebhookSignatureHeader = (
   request.headers.get("x-square-hmacsha256-signature") ??
   null;
 
+/** Build webhook line items from reservations and their products */
+const buildLineItems = async (
+  reservations: Reservation[],
+): Promise<WebhookLineItem[]> => {
+  const productIds = map((r: Reservation) => r.product_id)(reservations);
+  if (productIds.length === 0) return [];
+
+  const placeholders = productIds.map(() => "?").join(",");
+  const result = await getDb().execute({
+    sql: `SELECT * FROM products WHERE id IN (${placeholders})`,
+    args: productIds,
+  });
+  const products = result.rows as unknown as Product[];
+  const productMap = new Map(map((p: Product) => [p.id, p] as const)(products));
+
+  return map((r: Reservation) => {
+    const product = productMap.get(r.product_id);
+    return {
+      sku: product?.sku ?? "",
+      name: product?.name ?? "",
+      unit_price: product?.unit_price ?? 0,
+      quantity: r.quantity,
+    };
+  })(reservations);
+};
+
+/** Extract the provider session ID from the webhook event */
+const getSessionId = (event: { data: { object: Record<string, unknown> } }): string | null => {
+  const obj = event.data.object;
+  // Stripe: checkout.session.completed → object.id is the session ID
+  // Square: payment.updated → object.order_id is the order ID
+  return (obj.id as string) ?? (obj.order_id as string) ?? null;
+};
+
 /**
  * Handle POST /payment/webhook (payment provider webhook endpoint)
  *
@@ -41,9 +84,7 @@ const getWebhookSignatureHeader = (
  */
 const handlePaymentWebhook = async (request: Request): Promise<Response> => {
   const provider = await getActivePaymentProvider();
-  if (!provider) {
-    return new Response("Payment provider not configured", { status: 400 });
-  }
+  if (!provider) return new Response("Payment provider not configured", { status: 400 });
 
   // Get signature header
   const signature = getWebhookSignatureHeader(request);
@@ -62,15 +103,55 @@ const handlePaymentWebhook = async (request: Request): Promise<Response> => {
 
   const event = verification.event;
 
-  // Only handle checkout completed events
-  if (event.type !== provider.checkoutCompletedEventType) {
-    // Acknowledge other events without processing
-    return webhookAckResponse();
+  // Handle checkout completed
+  if (event.type === provider.checkoutCompletedEventType) {
+    const sessionId = getSessionId(event);
+    if (!sessionId) return webhookAckResponse();
+
+    // Idempotency: claim this session ID
+    const reservation = await reserveSession(sessionId);
+    if (!reservation.reserved) {
+      logDebug("Webhook", `Session already processed: ${sessionId}`);
+      return webhookAckResponse({ already_processed: true });
+    }
+
+    // Confirm stock reservations
+    const confirmed = await confirmReservation(sessionId);
+    logDebug("Webhook", `Confirmed ${confirmed} reservations for ${sessionId}`);
+
+    // Send webhook notification
+    const reservations = await getReservationsBySession(sessionId);
+    const lineItems = await buildLineItems(reservations);
+    const currency = await getCurrencyCode();
+    const webhookUrl = await getSetting("webhook_url");
+    await logAndNotifyOrder(sessionId, lineItems, currency, webhookUrl);
+
+    return webhookAckResponse({ processed: true, confirmed });
   }
 
-  // TODO: Step 3 will implement stock reservation confirmation here
-  // For now, acknowledge the event
-  return webhookAckResponse({ processed: true });
+  // Handle checkout expired (Stripe: checkout.session.expired)
+  if (event.type === "checkout.session.expired") {
+    const sessionId = getSessionId(event);
+    if (!sessionId) return webhookAckResponse();
+
+    const expired = await expireReservation(sessionId);
+    logDebug("Webhook", `Expired ${expired} reservations for ${sessionId}`);
+    return webhookAckResponse({ processed: true, expired });
+  }
+
+  // Handle refund (Stripe: charge.refunded)
+  if (event.type === "charge.refunded") {
+    const obj = event.data.object as { payment_intent?: string };
+    const paymentIntent = obj.payment_intent;
+    if (!paymentIntent) return webhookAckResponse();
+
+    const restocked = await restockFromRefund(paymentIntent);
+    logDebug("Webhook", `Restocked ${restocked} reservations for refund ${paymentIntent}`);
+    return webhookAckResponse({ processed: true, restocked });
+  }
+
+  // Acknowledge other events without processing
+  return webhookAckResponse();
 };
 
 /** Payment routes definition */

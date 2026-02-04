@@ -20,6 +20,8 @@ import {
 
 import { computeHmacSha256, hmacToBase64, secureCompare } from "#lib/payment-crypto.ts";
 import type {
+  CheckoutSessionResult,
+  CreateCheckoutParams,
   WebhookEvent,
   WebhookVerifyResult,
 } from "#lib/payments.ts";
@@ -135,6 +137,8 @@ const toSquareOrder = (order: any): SquareOrder => {
 export const squareApi: {
   getSquareClient: () => ReturnType<typeof getClientImpl>;
   resetSquareClient: () => void;
+  createCheckoutSession: (params: CreateCheckoutParams) => Promise<CheckoutSessionResult>;
+  retrieveOrder: (orderId: string) => Promise<SquareOrder | null>;
   searchOrders: (params: { limit: number; cursor?: string }) => Promise<SquareOrderListResult | null>;
   retrievePayment: (paymentId: string) => Promise<SquarePayment | null>;
   refundPayment: (paymentId: string) => Promise<boolean>;
@@ -142,6 +146,50 @@ export const squareApi: {
   getSquareClient: getClientImpl,
 
   resetSquareClient: (): void => setCache(null),
+
+  /** Create a checkout session via Square Payment Link */
+  createCheckoutSession: (
+    params: CreateCheckoutParams,
+  ): Promise<CheckoutSessionResult> =>
+    withClient(
+      async (client) => {
+        const locationId = await getLocationId();
+        if (!locationId) return null;
+
+        const response = await client.checkout.paymentLinks.create({
+          order: {
+            locationId,
+            lineItems: params.lineItems.map((item) => ({
+              name: item.name,
+              quantity: String(item.quantity),
+              basePriceMoney: {
+                amount: BigInt(item.unitPrice),
+                currency: params.currency as import("square").Square.Currency,
+              },
+            })),
+            metadata: params.metadata,
+          },
+          checkoutOptions: {
+            redirectUrl: params.successUrl,
+          },
+        });
+
+        const link = response.paymentLink;
+        if (!link?.url || !link.orderId) return null;
+        return { sessionId: link.orderId, checkoutUrl: link.url };
+      },
+      ErrorCode.SQUARE_CHECKOUT,
+    ),
+
+  /** Retrieve an order by ID */
+  retrieveOrder: (orderId: string): Promise<SquareOrder | null> =>
+    withClient(
+      async (client) => {
+        const response = await client.orders.get({ orderId });
+        return response.order ? toSquareOrder(response.order) : null;
+      },
+      ErrorCode.SQUARE_ORDER,
+    ),
 
   /** Search orders (for listing in admin) */
   searchOrders: (
@@ -225,6 +273,10 @@ export const squareApi: {
 // Wrapper exports for production code (delegate to squareApi for test mocking)
 export const getSquareClient = () => squareApi.getSquareClient();
 export const resetSquareClient = () => squareApi.resetSquareClient();
+export const createCheckoutSession = (params: CreateCheckoutParams) =>
+  squareApi.createCheckoutSession(params);
+export const retrieveOrder = (orderId: string) =>
+  squareApi.retrieveOrder(orderId);
 export const searchOrders = (params: { limit: number; cursor?: string }) =>
   squareApi.searchOrders(params);
 export const retrievePayment = (id: string) => squareApi.retrievePayment(id);

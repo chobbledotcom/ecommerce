@@ -180,6 +180,80 @@ export const inviteUserFields: Field[] = [
 ];
 
 /**
+ * Product form field definitions
+ */
+export const productFields: Field[] = [
+  {
+    name: "name",
+    label: "Product Name",
+    type: "text",
+    required: true,
+  },
+  {
+    name: "sku",
+    label: "SKU",
+    type: "text",
+    required: true,
+    hint: "Unique product identifier (e.g. WIDGET-01)",
+  },
+  {
+    name: "description",
+    label: "Description",
+    type: "textarea",
+  },
+  {
+    name: "unit_price",
+    label: "Price (in smallest unit, e.g. pence/cents)",
+    type: "number",
+    required: true,
+    min: 0,
+    hint: "Enter 1500 for 15.00",
+  },
+  {
+    name: "stock",
+    label: "Stock",
+    type: "number",
+    required: true,
+    hint: "-1 for unlimited, 0 for out of stock",
+  },
+  {
+    name: "active",
+    label: "Active",
+    type: "select",
+    options: [
+      { value: "1", label: "Active" },
+      { value: "0", label: "Inactive" },
+    ],
+  },
+];
+
+/**
+ * Allowed origins form field definitions
+ */
+export const allowedOriginsFields: Field[] = [
+  {
+    name: "allowed_origins",
+    label: "Allowed Origins",
+    type: "textarea",
+    hint: "Comma-separated origins (e.g. https://myshop.com, https://staging.myshop.com)",
+  },
+];
+
+/**
+ * Currency form field definitions
+ */
+export const currencyFields: Field[] = [
+  {
+    name: "currency_code",
+    label: "Currency Code",
+    type: "text",
+    required: true,
+    pattern: "[A-Z]{3}",
+    hint: "3-letter ISO code (e.g., GBP, USD, EUR)",
+  },
+];
+
+/**
  * Join (set password) form field definitions
  */
 export const joinFields: Field[] = [

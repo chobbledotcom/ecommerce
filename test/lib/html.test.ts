@@ -34,7 +34,7 @@ describe("html", () => {
     test("renders dashboard page with nav", () => {
       const html = adminDashboardPage(TEST_SESSION);
       expect(html).toContain("Dashboard");
-      expect(html).toContain("Events");
+      expect(html).toContain("Products");
     });
 
     test("includes logout link", () => {

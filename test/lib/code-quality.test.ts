@@ -213,8 +213,8 @@ describe("code quality", () => {
       "lib/jsx/jsx-runtime.ts", // JSX compiler runtime
       "lib/jsx/jsx-dev-runtime.ts", // JSX dev runtime
       "config/asset-paths.ts", // Build-time config consumed by .tsx templates
-      "lib/db/products.ts", // Product catalog module - routes added in Step 3
-      "lib/db/reservations.ts", // Stock reservations module - routes added in Step 3
+      "lib/db/products.ts", // Product catalog module - some exports used only by API
+      "lib/db/reservations.ts", // Stock reservations module - some exports used only by webhooks
     ];
 
     /** Index modules that only re-export from sub-modules */
@@ -254,13 +254,7 @@ describe("code quality", () => {
       "lib/square.ts:resetSquareClient",
       // Test helper for creating signed Square webhook payloads
       "lib/square.ts:constructTestWebhookEvent",
-      // Raw attendee fetch for testing encrypted data (production uses batched getEventWithAttendeesRaw)
-      "lib/db/attendees.ts:getAttendeesRaw",
-      // Single attendee fetch for tests (production uses batched getEventWithAttendeeRaw)
-      "lib/db/attendees.ts:getAttendee",
-      // Currency code config - used in checkout routes added in Step 3
-      "lib/config.ts:getCurrencyCode",
-      // Hybrid encryption primitives - used in attendee PII encryption routes added in Step 3
+      // Hybrid encryption primitives - used for data encryption
       "lib/crypto.ts:importPublicKey",
       "lib/crypto.ts:hybridEncrypt",
       "lib/crypto.ts:hybridDecrypt",

@@ -5,11 +5,13 @@
 
 import {
   clearPaymentProvider,
+  CONFIG_KEYS,
   getPaymentProviderFromDb,
   getStripeWebhookEndpointId,
   hasSquareToken,
   hasStripeKey,
   setPaymentProvider,
+  setSetting,
   setStripeWebhookConfig,
   updateSquareAccessToken,
   updateSquareLocationId,
@@ -327,6 +329,29 @@ const handleResetDatabasePost = (request: Request): Promise<Response> =>
     return redirect("/setup/", clearSessionCookie);
   });
 
+/**
+ * Handle POST /admin/settings/allowed-origins - owner only
+ */
+const handleAllowedOriginsPost = (request: Request): Promise<Response> =>
+  withOwnerAuthForm(request, async (_session, form) => {
+    const origins = (form.get("allowed_origins") ?? "").trim();
+    await setSetting(CONFIG_KEYS.ALLOWED_ORIGINS, origins);
+    return redirectWithSuccess("/admin/settings", "Allowed origins updated");
+  });
+
+/**
+ * Handle POST /admin/settings/currency - owner only
+ */
+const handleCurrencyPost = (request: Request): Promise<Response> =>
+  withOwnerAuthForm(request, async (session, form) => {
+    const code = (form.get("currency_code") ?? "").trim().toUpperCase();
+    if (!/^[A-Z]{3}$/.test(code)) {
+      return htmlResponse(await renderSettingsPage(session, "Invalid currency code"), 400);
+    }
+    await setSetting(CONFIG_KEYS.CURRENCY_CODE, code);
+    return redirectWithSuccess("/admin/settings", `Currency set to ${code}`);
+  });
+
 /** Settings routes */
 export const settingsRoutes = defineRoutes({
   "GET /admin/settings": (request) => handleAdminSettingsGet(request),
@@ -338,6 +363,9 @@ export const settingsRoutes = defineRoutes({
   "POST /admin/settings/square-webhook": (request) =>
     handleAdminSquareWebhookPost(request),
   "POST /admin/settings/stripe/test": (request) => handleStripeTestPost(request),
+  "POST /admin/settings/allowed-origins": (request) =>
+    handleAllowedOriginsPost(request),
+  "POST /admin/settings/currency": (request) => handleCurrencyPost(request),
   "POST /admin/settings/reset-database": (request) =>
     handleResetDatabasePost(request),
 });

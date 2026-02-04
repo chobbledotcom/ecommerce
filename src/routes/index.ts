@@ -7,9 +7,12 @@ import { once } from "#fp";
 import { isSetupComplete } from "#lib/config.ts";
 import { createRequestTimer, logRequest } from "#lib/logger.ts";
 import {
+  applyCorsHeaders,
   applySecurityHeaders,
   contentTypeRejectionResponse,
   domainRejectionResponse,
+  handlePreflight,
+  isApiPath,
   isEmbeddablePath,
   isValidContentType,
   isValidDomain,
@@ -40,10 +43,16 @@ const loadPaymentRoutes = once(async () => {
   return routePayment;
 });
 
+/** Lazy-load public API routes */
+const loadApiRoutes = once(async () => {
+  const { routeApi } = await import("#routes/api.ts");
+  return routeApi;
+});
 
 // Re-export middleware functions for testing
 export {
   getSecurityHeaders,
+  isApiPath,
   isEmbeddablePath,
   isValidContentType,
   isValidDomain,
@@ -68,6 +77,7 @@ const createLazyRoute =
 /** Lazy-loaded route handlers */
 const routeAdminPath = createLazyRoute("/admin", loadAdminRoutes);
 const routePaymentPath = createLazyRoute("/payment", loadPaymentRoutes);
+const routeApiPath = createLazyRoute("/api", loadApiRoutes);
 
 /**
  * Route main application requests (after setup is complete)
@@ -75,6 +85,7 @@ const routePaymentPath = createLazyRoute("/payment", loadPaymentRoutes);
  */
 const routeMainApp: RouterFn = async (request, path, method, server) =>
   (path === "" || path === "/" ? redirect("/admin/") : null) ??
+  (await routeApiPath(request, path, method, server)) ??
   (await routeAdminPath(request, path, method, server)) ??
   (await routePaymentPath(request, path, method, server)) ??
   notFoundResponse();
@@ -134,14 +145,27 @@ export const handleRequest = async (
     return logAndReturn(domainRejectionResponse(), method, path, getElapsed);
   }
 
+  // Handle OPTIONS preflight for API paths
+  if (method === "OPTIONS" && isApiPath(path)) {
+    const preflight = await handlePreflight(request);
+    if (preflight) return logAndReturn(preflight, method, path, getElapsed);
+  }
+
   const embeddable = isEmbeddablePath(path);
 
   // Content-Type validation: reject POST requests without proper Content-Type
-  // (webhook endpoints accept JSON, all others require form-urlencoded)
+  // (webhook and API endpoints accept JSON, all others require form-urlencoded)
   if (!isValidContentType(request, path)) {
     return logAndReturn(contentTypeRejectionResponse(), method, path, getElapsed);
   }
 
-  const response = await handleRequestInternal(request, path, method, server);
-  return logAndReturn(applySecurityHeaders(response, embeddable), method, path, getElapsed);
+  let response = await handleRequestInternal(request, path, method, server);
+  response = applySecurityHeaders(response, embeddable);
+
+  // Apply CORS headers for API responses
+  if (isApiPath(path)) {
+    response = await applyCorsHeaders(response, request);
+  }
+
+  return logAndReturn(response, method, path, getElapsed);
 };

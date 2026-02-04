@@ -13,12 +13,9 @@
 
 import { getAllowedDomain } from "#lib/config.ts";
 import { toSessionListResult } from "#lib/payment-helpers.ts";
-import {
-  refundPayment,
-  searchOrders,
-  verifyWebhookSignature,
-} from "#lib/square.ts";
 import type {
+  CheckoutSessionResult,
+  CreateCheckoutParams,
   ListSessionsParams,
   PaymentProvider,
   PaymentProviderType,
@@ -26,6 +23,25 @@ import type {
   WebhookSetupResult,
   WebhookVerifyResult,
 } from "#lib/payments.ts";
+import type { PaymentSession } from "#lib/types.ts";
+import {
+  createCheckoutSession,
+  refundPayment,
+  retrieveOrder,
+  searchOrders,
+  verifyWebhookSignature,
+} from "#lib/square.ts";
+
+/** Map a Square order to our PaymentSession type */
+const toPaymentSession = (order: { id?: string; state?: string }): PaymentSession => ({
+  id: order.id ?? "",
+  status: order.state ?? "UNKNOWN",
+  amount: null,
+  currency: null,
+  customerEmail: null,
+  created: "",
+  url: null,
+});
 
 /** Square payment provider implementation */
 export const squarePaymentProvider: PaymentProvider = {
@@ -59,19 +75,19 @@ export const squarePaymentProvider: PaymentProvider = {
     });
   },
 
+  createCheckoutSession: (params: CreateCheckoutParams): Promise<CheckoutSessionResult> =>
+    createCheckoutSession(params),
+
+  async retrieveSession(sessionId: string): Promise<PaymentSession | null> {
+    const order = await retrieveOrder(sessionId);
+    return order ? toPaymentSession(order) : null;
+  },
+
   async listSessions(params: ListSessionsParams): Promise<PaymentSessionListResult> {
     const result = await searchOrders({
       limit: params.limit,
       cursor: params.startingAfter,
     });
-    return toSessionListResult(result, result?.orders, (order) => ({
-      id: order.id ?? "",
-      status: order.state ?? "UNKNOWN",
-      amount: null,
-      currency: null,
-      customerEmail: null,
-      created: "",
-      url: null,
-    }));
+    return toSessionListResult(result, result?.orders, toPaymentSession);
   },
 };

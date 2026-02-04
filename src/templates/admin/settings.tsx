@@ -36,7 +36,7 @@ export const adminSettingsPage = (
 
         <form method="POST" action="/admin/settings/payment-provider">
             <h2>Payment Provider</h2>
-          <p>Choose which payment provider to use for paid events.</p>
+          <p>Choose which payment provider to use for checkout.</p>
           <input type="hidden" name="csrf_token" value={session.csrfToken} />
           <fieldset>
             <label>
@@ -173,6 +173,24 @@ document.getElementById('stripe-test-btn')?.addEventListener('click', async func
         </form>
         )}
 
+        <form method="POST" action="/admin/settings/allowed-origins">
+            <h2>Allowed Origins (CORS)</h2>
+          <p>Comma-separated origins that may call the public API (e.g. https://myshop.com)</p>
+          <input type="hidden" name="csrf_token" value={session.csrfToken} />
+          <label for="allowed_origins">Allowed Origins</label>
+          <textarea name="allowed_origins" id="allowed_origins" rows="2" />
+          <button type="submit">Save Allowed Origins</button>
+        </form>
+
+        <form method="POST" action="/admin/settings/currency">
+            <h2>Currency</h2>
+          <input type="hidden" name="csrf_token" value={session.csrfToken} />
+          <label for="currency_code">Currency Code</label>
+          <input type="text" name="currency_code" id="currency_code" pattern="[A-Z]{3}" placeholder="GBP" />
+          <small style="color: #666; display: block; margin-top: 0.25rem;">3-letter ISO code (e.g. GBP, USD, EUR)</small>
+          <button type="submit">Save Currency</button>
+        </form>
+
         <form method="POST" action="/admin/settings">
             <h2>Change Password</h2>
           <p>Changing your password will log you out of all sessions.</p>
@@ -185,7 +203,7 @@ document.getElementById('stripe-test-btn')?.addEventListener('click', async func
             <h2>Reset Database</h2>
           <article>
             <aside>
-              <p><strong>Warning:</strong> This will permanently delete all events, attendees, settings, and other data. This action cannot be undone.</p>
+              <p><strong>Warning:</strong> This will permanently delete all products, orders, settings, and other data. This action cannot be undone.</p>
             </aside>
           </article>
           <p>To reset the database, type the following phrase into the box below:</p>

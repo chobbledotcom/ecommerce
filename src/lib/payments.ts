@@ -18,6 +18,22 @@ export const paymentsApi = {
 /** Supported payment provider identifiers */
 export type PaymentProviderType = "stripe" | "square";
 
+/** Line item for checkout session creation */
+export type CheckoutLineItem = {
+  name: string;
+  unitPrice: number; // in smallest currency unit (pence/cents)
+  quantity: number;
+};
+
+/** Parameters for creating a checkout session */
+export type CreateCheckoutParams = {
+  lineItems: CheckoutLineItem[];
+  metadata: Record<string, string>;
+  successUrl: string;
+  cancelUrl: string;
+  currency: string;
+};
+
 /** Result of creating a checkout session */
 export type CheckoutSessionResult = {
   sessionId: string;
@@ -86,6 +102,20 @@ export interface PaymentProvider {
 
   /** The webhook event type name that indicates a completed checkout */
   readonly checkoutCompletedEventType: string;
+
+  /**
+   * Create a checkout session with line items.
+   * Returns the provider's session ID and a redirect URL for the customer.
+   */
+  createCheckoutSession(
+    params: CreateCheckoutParams,
+  ): Promise<CheckoutSessionResult>;
+
+  /**
+   * Retrieve a checkout session/order by ID.
+   * Used for the admin order detail page.
+   */
+  retrieveSession(sessionId: string): Promise<PaymentSession | null>;
 
   /**
    * List recent checkout sessions/orders from the provider.

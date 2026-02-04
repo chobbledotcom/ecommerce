@@ -222,7 +222,7 @@ describe("server (multi-user admin)", () => {
       });
       expect(response.status).toBe(200);
       const html = await response.text();
-      expect(html).toContain("Events");
+      expect(html).toContain("Products");
     });
   });
 

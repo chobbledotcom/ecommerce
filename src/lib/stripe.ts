@@ -17,6 +17,8 @@ import {
   createWithClient,
 } from "#lib/payment-helpers.ts";
 import type {
+  CheckoutSessionResult,
+  CreateCheckoutParams,
   WebhookEvent,
   WebhookSetupResult,
   WebhookVerifyResult,
@@ -125,6 +127,8 @@ export type StripeSessionListResult = {
 export const stripeApi: {
   getStripeClient: () => Promise<Stripe | null>;
   resetStripeClient: () => void;
+  createCheckoutSession: (params: CreateCheckoutParams) => Promise<CheckoutSessionResult>;
+  retrieveCheckoutSession: (sessionId: string) => Promise<Stripe.Checkout.Session | null>;
   listCheckoutSessions: (params: { limit: number; startingAfter?: string }) => Promise<StripeSessionListResult | null>;
   refundPayment: (intentId: string) => Promise<Stripe.Refund | null>;
   setupWebhookEndpoint: (
@@ -142,6 +146,41 @@ export const stripeApi: {
     setCache(null);
     setMockConfig(null);
   },
+
+  /** Create a checkout session with line items */
+  createCheckoutSession: (
+    params: CreateCheckoutParams,
+  ): Promise<CheckoutSessionResult> =>
+    withClient(
+      async (s) => {
+        const session = await s.checkout.sessions.create({
+          mode: "payment",
+          line_items: params.lineItems.map((item) => ({
+            price_data: {
+              currency: params.currency,
+              unit_amount: item.unitPrice,
+              product_data: { name: item.name },
+            },
+            quantity: item.quantity,
+          })),
+          metadata: params.metadata,
+          success_url: params.successUrl,
+          cancel_url: params.cancelUrl,
+        });
+        if (!session.url) return null;
+        return { sessionId: session.id, checkoutUrl: session.url };
+      },
+      ErrorCode.STRIPE_CHECKOUT,
+    ),
+
+  /** Retrieve a checkout session by ID */
+  retrieveCheckoutSession: (
+    sessionId: string,
+  ): Promise<Stripe.Checkout.Session | null> =>
+    withClient(
+      (s) => s.checkout.sessions.retrieve(sessionId),
+      ErrorCode.STRIPE_SESSION,
+    ),
 
   /** List checkout sessions */
   listCheckoutSessions: (
@@ -309,6 +348,10 @@ export const setupWebhookEndpoint = (
 // Wrapper functions that delegate to stripeApi at runtime (enables test mocking)
 export const getStripeClient = () => stripeApi.getStripeClient();
 export const resetStripeClient = () => stripeApi.resetStripeClient();
+export const createCheckoutSession = (params: CreateCheckoutParams) =>
+  stripeApi.createCheckoutSession(params);
+export const retrieveCheckoutSession = (sessionId: string) =>
+  stripeApi.retrieveCheckoutSession(sessionId);
 export const listCheckoutSessions = (params: { limit: number; startingAfter?: string }) =>
   stripeApi.listCheckoutSessions(params);
 export const refundPayment = (id: string) => stripeApi.refundPayment(id);
