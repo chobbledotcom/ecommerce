@@ -70,3 +70,21 @@ export interface PaymentSession {
   created: string;
   url: string | null;
 }
+
+/** Line item in a payment session detail */
+export interface PaymentLineItem {
+  name: string;
+  quantity: number;
+  unitPrice: number | null;
+  total: number | null;
+}
+
+/** Detailed payment session for the order detail view */
+export interface PaymentSessionDetail extends PaymentSession {
+  lineItems: PaymentLineItem[];
+  metadata: Record<string, string>;
+  customerName: string | null;
+  paymentReference: string | null;
+  dashboardUrl: string | null;
+  providerType: "stripe" | "square";
+}

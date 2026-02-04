@@ -43,7 +43,7 @@ export const adminOrdersPage = (
               {sessions.map((s) => (
                 <tr>
                   <td>{s.created ? new Date(s.created).toLocaleDateString() : "-"}</td>
-                  <td><code>{s.id.slice(0, 20)}</code></td>
+                  <td><a href={`/admin/orders/${encodeURIComponent(s.id)}`}><code>{s.id.slice(0, 20)}</code></a></td>
                   <td>{s.status}</td>
                   <td>{formatAmount(s.amount, s.currency)}</td>
                   <td>{s.customerEmail ?? "-"}</td>

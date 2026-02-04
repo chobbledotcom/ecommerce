@@ -20,6 +20,7 @@ import {
   type PaymentProvider,
   type PaymentProviderType,
   type PaymentSession,
+  type PaymentSessionDetail,
   type PaymentSessionListResult,
   type WebhookEvent,
   type WebhookSetupResult,
@@ -43,6 +44,10 @@ const toPaymentSession = (order: { id?: string; state?: string }): PaymentSessio
   created: "",
   url: null,
 });
+
+/** Build a Square dashboard URL for an order */
+const squareDashboardUrl = (orderId: string): string =>
+  `https://squareup.com/dashboard/orders/overview/${orderId}`;
 
 /** Square payment provider implementation */
 export const squarePaymentProvider: PaymentProvider = {
@@ -89,6 +94,24 @@ export const squarePaymentProvider: PaymentProvider = {
   async retrieveSession(sessionId: string): Promise<PaymentSession | null> {
     const order = await retrieveOrder(sessionId);
     return order ? toPaymentSession(order) : null;
+  },
+
+  async retrieveSessionDetail(sessionId: string): Promise<PaymentSessionDetail | null> {
+    const order = await retrieveOrder(sessionId);
+    if (!order) return null;
+
+    const base = toPaymentSession(order);
+    const firstPaymentId = order.tenders?.[0]?.paymentId ?? null;
+
+    return {
+      ...base,
+      lineItems: [],
+      metadata: order.metadata ?? {},
+      customerName: null,
+      paymentReference: firstPaymentId,
+      dashboardUrl: squareDashboardUrl(order.id ?? sessionId),
+      providerType: "square",
+    };
   },
 
   async listSessions(params: ListSessionsParams): Promise<PaymentSessionListResult> {
