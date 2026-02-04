@@ -12,19 +12,19 @@
  */
 
 import { getAllowedDomain } from "#lib/config.ts";
-import { toSessionListResult } from "#lib/payment-helpers.ts";
-import type {
-  CheckoutSessionResult,
-  CreateCheckoutParams,
-  ListSessionsParams,
-  PaymentProvider,
-  PaymentProviderType,
-  PaymentSessionListResult,
-  WebhookEvent,
-  WebhookSetupResult,
-  WebhookVerifyResult,
+import {
+  toSessionListResult,
+  type CheckoutSessionResult,
+  type CreateCheckoutParams,
+  type ListSessionsParams,
+  type PaymentProvider,
+  type PaymentProviderType,
+  type PaymentSession,
+  type PaymentSessionListResult,
+  type WebhookEvent,
+  type WebhookSetupResult,
+  type WebhookVerifyResult,
 } from "#lib/payments.ts";
-import type { PaymentSession } from "#lib/types.ts";
 import {
   createCheckoutSession,
   refundPayment,

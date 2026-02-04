@@ -10,6 +10,10 @@ import { getPaymentProvider as getConfiguredProvider } from "#lib/config.ts";
 import { logDebug } from "#lib/logger.ts";
 import type { PaymentSession } from "#lib/types.ts";
 
+// Re-export for provider implementations to avoid duplicate import blocks
+export type { PaymentSession };
+export { toSessionListResult } from "#lib/payment-helpers.ts";
+
 /** Stubbable API for internal calls (testable via spyOn, like stripeApi/squareApi) */
 export const paymentsApi = {
   getConfiguredProvider,

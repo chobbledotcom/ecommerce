@@ -5,6 +5,7 @@
 
 import { getProductsWithAvailableStock, productsTable } from "#lib/db/products.ts";
 import { getDb } from "#lib/db/client.ts";
+import { expireStaleReservations } from "#lib/db/reservations.ts";
 import type { Product } from "#lib/types.ts";
 import { defineRoutes } from "#routes/router.ts";
 import { loginResponse } from "#routes/admin/dashboard.ts";
@@ -32,6 +33,9 @@ const getProductById = async (id: number): Promise<Product | null> => {
   return result.rows.length > 0 ? (result.rows[0] as unknown as Product) : null;
 };
 
+/** 30 minutes — matches the stale threshold used in checkout */
+const STALE_RESERVATION_MS = 30 * 60 * 1000;
+
 /**
  * GET /admin/ — product list (dashboard) or login page
  */
@@ -39,6 +43,7 @@ const handleDashboard = (request: Request): Promise<Response> =>
   withSession(
     request,
     async (session) => {
+      await expireStaleReservations(STALE_RESERVATION_MS);
       const products = await getProductsWithAvailableStock();
       return htmlResponse(adminProductListPage(products, session));
     },
@@ -82,6 +87,7 @@ const handleEditProductGet = (request: Request, path: string): Promise<Response>
     const productId = parseProductId(path);
     if (!productId) return htmlResponse("Not found", 404);
 
+    await expireStaleReservations(STALE_RESERVATION_MS);
     const product = await getProductById(productId);
     if (!product) return htmlResponse("Not found", 404);
 
