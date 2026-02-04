@@ -5,19 +5,7 @@
  * provider-agnostic PaymentProvider contract.
  */
 
-import { toSessionListResult } from "#lib/payment-helpers.ts";
-import type {
-  CheckoutSessionResult,
-  CreateCheckoutParams,
-  ListSessionsParams,
-  PaymentProvider,
-  PaymentProviderType,
-  PaymentSessionListResult,
-  WebhookEvent,
-  WebhookSetupResult,
-  WebhookVerifyResult,
-} from "#lib/payments.ts";
-import type { PaymentSession } from "#lib/types.ts";
+import * as P from "#lib/payments.ts";
 import {
   createCheckoutSession,
   listCheckoutSessions,
@@ -37,7 +25,7 @@ const toPaymentSession = (s: {
   customer_email?: string | null;
   created: number;
   url?: string | null;
-}): PaymentSession => ({
+}): P.PaymentSession => ({
   id: s.id,
   status: s.payment_status,
   amount: s.amount_total ?? null,
@@ -48,22 +36,29 @@ const toPaymentSession = (s: {
 });
 
 /** Stripe payment provider implementation */
-export const stripePaymentProvider: PaymentProvider = {
-  type: "stripe" as PaymentProviderType,
+export const stripePaymentProvider: P.PaymentProvider = {
+  type: "stripe" as P.PaymentProviderType,
 
   checkoutCompletedEventType: "checkout.session.completed",
+  checkoutExpiredEventType: "checkout.session.expired",
+  refundEventType: "charge.refunded",
+
+  getRefundReference(event: P.WebhookEvent): string | null {
+    const obj = event.data.object as { payment_intent?: string };
+    return obj.payment_intent ?? null;
+  },
 
   async verifyWebhookSignature(
     payload: string,
     signature: string,
-  ): Promise<WebhookVerifyResult> {
+  ): Promise<P.WebhookVerifyResult> {
     const result = await verifyWebhookSignature(payload, signature);
     if (!result.valid) {
       return { valid: false, error: result.error };
     }
     return {
       valid: true,
-      event: result.event as WebhookEvent,
+      event: result.event as P.WebhookEvent,
     };
   },
 
@@ -76,23 +71,23 @@ export const stripePaymentProvider: PaymentProvider = {
     secretKey: string,
     webhookUrl: string,
     existingEndpointId?: string | null,
-  ): Promise<WebhookSetupResult> {
+  ): Promise<P.WebhookSetupResult> {
     return setupWebhookEndpoint(secretKey, webhookUrl, existingEndpointId);
   },
 
   createCheckoutSession(
-    params: CreateCheckoutParams,
-  ): Promise<CheckoutSessionResult> {
+    params: P.CreateCheckoutParams,
+  ): Promise<P.CheckoutSessionResult> {
     return createCheckoutSession(params);
   },
 
-  async retrieveSession(sessionId: string): Promise<PaymentSession | null> {
+  async retrieveSession(sessionId: string): Promise<P.PaymentSession | null> {
     const session = await retrieveCheckoutSession(sessionId);
     return session ? toPaymentSession(session) : null;
   },
 
-  async listSessions(params: ListSessionsParams): Promise<PaymentSessionListResult> {
+  async listSessions(params: P.ListSessionsParams): Promise<P.PaymentSessionListResult> {
     const result = await listCheckoutSessions(params);
-    return toSessionListResult(result, result?.sessions, toPaymentSession);
+    return P.toSessionListResult(result, result?.sessions, toPaymentSession);
   },
 };

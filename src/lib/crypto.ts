@@ -7,21 +7,19 @@ import { lazyRef } from "#fp";
 import { getEnv } from "#lib/env.ts";
 
 /**
- * Constant-time string comparison to prevent timing attacks
- * Uses XOR-based comparison to avoid timing leaks
+ * Constant-time string comparison to prevent timing attacks.
+ * Pads the shorter string to the length of the longer one so that
+ * the comparison time does not leak either string's length.
  */
 export const constantTimeEqual = (a: string, b: string): boolean => {
-  if (a.length !== b.length) {
-    return false;
-  }
-
   const encoder = new TextEncoder();
   const bufA = encoder.encode(a);
   const bufB = encoder.encode(b);
 
-  let result = 0;
-  for (let i = 0; i < bufA.length; i++) {
-    result |= (bufA[i] as number) ^ (bufB[i] as number);
+  const maxLen = Math.max(bufA.length, bufB.length);
+  let result = bufA.length ^ bufB.length; // non-zero if lengths differ
+  for (let i = 0; i < maxLen; i++) {
+    result |= ((bufA[i] ?? 0) as number) ^ ((bufB[i] ?? 0) as number);
   }
   return result === 0;
 };

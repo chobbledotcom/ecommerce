@@ -2302,3 +2302,97 @@ describe("square-provider additional operations", () => {
     );
   });
 });
+
+// =========================================================================
+// src/lib/square-provider.ts — getRefundReference and event type properties
+// =========================================================================
+describe("square-provider (webhook event types and refund reference)", () => {
+  test("checkoutExpiredEventType is defined", async () => {
+    const { squarePaymentProvider: provider } = await import("#lib/square-provider.ts");
+    expect(provider.checkoutExpiredEventType).toBe("order.updated");
+  });
+
+  test("refundEventType is defined", async () => {
+    const { squarePaymentProvider: provider } = await import("#lib/square-provider.ts");
+    expect(provider.refundEventType).toBe("refund.updated");
+  });
+
+  test("getRefundReference extracts payment_id", async () => {
+    const { squarePaymentProvider: provider } = await import("#lib/square-provider.ts");
+    const event = { id: "evt_1", type: "refund.updated", data: { object: { payment_id: "pay_123" } } };
+    expect(provider.getRefundReference(event)).toBe("pay_123");
+  });
+
+  test("getRefundReference falls back to id", async () => {
+    const { squarePaymentProvider: provider } = await import("#lib/square-provider.ts");
+    const event = { id: "evt_1", type: "refund.updated", data: { object: { id: "ref_456" } } };
+    expect(provider.getRefundReference(event)).toBe("ref_456");
+  });
+
+  test("getRefundReference returns null when no reference", async () => {
+    const { squarePaymentProvider: provider } = await import("#lib/square-provider.ts");
+    const event = { id: "evt_1", type: "refund.updated", data: { object: {} } };
+    expect(provider.getRefundReference(event)).toBeNull();
+  });
+});
+
+// =========================================================================
+// src/lib/db/reservations.ts — reserveStockBatch partial failure cleanup
+// =========================================================================
+describe("reserveStockBatch (partial failure cleanup)", () => {
+  beforeEach(async () => {
+    await createTestDbWithSetup();
+  });
+
+  afterEach(() => {
+    resetDb();
+  });
+
+  test("cleans up successful reservations when a later item fails", async () => {
+    const product1 = await createTestProduct({ sku: "BATCH-OK", stock: 10 });
+    const product2 = await createTestProduct({ sku: "BATCH-FAIL", stock: 1 });
+
+    const { reserveStockBatch } = await import("#lib/db/reservations.ts");
+    const result = await reserveStockBatch(
+      [
+        { productId: product1.id, quantity: 2 },
+        { productId: product2.id, quantity: 5 }, // exceeds stock
+      ],
+      new Map([[product1.id, "BATCH-OK"], [product2.id, "BATCH-FAIL"]]),
+      "batch-test-session",
+    );
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.failedSku).toBe("BATCH-FAIL");
+    }
+
+    // Verify the first reservation was cleaned up (expired)
+    const { getDb } = await import("#lib/db/client.ts");
+    const rows = await getDb().execute({
+      sql: "SELECT * FROM stock_reservations WHERE provider_session_id = ? AND status = 'pending'",
+      args: ["batch-test-session"],
+    });
+    expect(rows.rows.length).toBe(0);
+  });
+
+  test("succeeds for all items when stock is available", async () => {
+    const product1 = await createTestProduct({ sku: "B-OK1", stock: 10 });
+    const product2 = await createTestProduct({ sku: "B-OK2", stock: 5 });
+
+    const { reserveStockBatch } = await import("#lib/db/reservations.ts");
+    const result = await reserveStockBatch(
+      [
+        { productId: product1.id, quantity: 2 },
+        { productId: product2.id, quantity: 3 },
+      ],
+      new Map([[product1.id, "B-OK1"], [product2.id, "B-OK2"]]),
+      "batch-ok-session",
+    );
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.reservationIds.length).toBe(2);
+    }
+  });
+});

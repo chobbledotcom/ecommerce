@@ -10,6 +10,10 @@ import { getPaymentProvider as getConfiguredProvider } from "#lib/config.ts";
 import { logDebug } from "#lib/logger.ts";
 import type { PaymentSession } from "#lib/types.ts";
 
+// Re-export for provider implementations to avoid duplicate import blocks
+export type { PaymentSession };
+export { toSessionListResult } from "#lib/payment-helpers.ts";
+
 /** Stubbable API for internal calls (testable via spyOn, like stripeApi/squareApi) */
 export const paymentsApi = {
   getConfiguredProvider,
@@ -102,6 +106,18 @@ export interface PaymentProvider {
 
   /** The webhook event type name that indicates a completed checkout */
   readonly checkoutCompletedEventType: string;
+
+  /** The webhook event type for an expired/cancelled checkout (null if unsupported) */
+  readonly checkoutExpiredEventType: string | null;
+
+  /** The webhook event type for a refund (null if unsupported) */
+  readonly refundEventType: string | null;
+
+  /**
+   * Extract the refund reference (e.g. payment intent ID) from a refund webhook event.
+   * Returns null if the reference cannot be extracted.
+   */
+  getRefundReference(event: WebhookEvent): string | null;
 
   /**
    * Create a checkout session with line items.

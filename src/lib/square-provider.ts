@@ -12,18 +12,19 @@
  */
 
 import { getAllowedDomain } from "#lib/config.ts";
-import { toSessionListResult } from "#lib/payment-helpers.ts";
-import type {
-  CheckoutSessionResult,
-  CreateCheckoutParams,
-  ListSessionsParams,
-  PaymentProvider,
-  PaymentProviderType,
-  PaymentSessionListResult,
-  WebhookSetupResult,
-  WebhookVerifyResult,
+import {
+  toSessionListResult,
+  type CheckoutSessionResult,
+  type CreateCheckoutParams,
+  type ListSessionsParams,
+  type PaymentProvider,
+  type PaymentProviderType,
+  type PaymentSession,
+  type PaymentSessionListResult,
+  type WebhookEvent,
+  type WebhookSetupResult,
+  type WebhookVerifyResult,
 } from "#lib/payments.ts";
-import type { PaymentSession } from "#lib/types.ts";
 import {
   createCheckoutSession,
   refundPayment,
@@ -48,6 +49,13 @@ export const squarePaymentProvider: PaymentProvider = {
   type: "square" as PaymentProviderType,
 
   checkoutCompletedEventType: "payment.updated",
+  checkoutExpiredEventType: "order.updated", // Square notifies via order status change
+  refundEventType: "refund.updated",
+
+  getRefundReference(event: WebhookEvent): string | null {
+    const obj = event.data.object as { payment_id?: string; id?: string };
+    return obj.payment_id ?? obj.id ?? null;
+  },
 
   verifyWebhookSignature(
     payload: string,
