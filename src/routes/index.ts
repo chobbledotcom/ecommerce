@@ -49,6 +49,12 @@ const loadApiRoutes = once(async () => {
   return routeApi;
 });
 
+/** Lazy-load join (invite) routes */
+const loadJoinRoutes = once(async () => {
+  const { routeJoin } = await import("#routes/join.ts");
+  return routeJoin;
+});
+
 // Re-export middleware functions for testing
 export {
   getSecurityHeaders,
@@ -78,6 +84,7 @@ const createLazyRoute =
 const routeAdminPath = createLazyRoute("/admin", loadAdminRoutes);
 const routePaymentPath = createLazyRoute("/payment", loadPaymentRoutes);
 const routeApiPath = createLazyRoute("/api", loadApiRoutes);
+const routeJoinPath = createLazyRoute("/join", loadJoinRoutes);
 
 /**
  * Route main application requests (after setup is complete)
@@ -86,6 +93,7 @@ const routeApiPath = createLazyRoute("/api", loadApiRoutes);
 const routeMainApp: RouterFn = async (request, path, method, server) =>
   (path === "" || path === "/" ? redirect("/admin/") : null) ??
   (await routeApiPath(request, path, method, server)) ??
+  (await routeJoinPath(request, path, method, server)) ??
   (await routeAdminPath(request, path, method, server)) ??
   (await routePaymentPath(request, path, method, server)) ??
   notFoundResponse();
