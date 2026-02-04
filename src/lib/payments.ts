@@ -8,10 +8,10 @@
 
 import { getPaymentProvider as getConfiguredProvider } from "#lib/config.ts";
 import { logDebug } from "#lib/logger.ts";
-import type { PaymentSession } from "#lib/types.ts";
+import type { PaymentSession, PaymentSessionDetail } from "#lib/types.ts";
 
 // Re-export for provider implementations to avoid duplicate import blocks
-export type { PaymentSession };
+export type { PaymentSession, PaymentSessionDetail };
 export { toSessionListResult } from "#lib/payment-helpers.ts";
 
 /** Stubbable API for internal calls (testable via spyOn, like stripeApi/squareApi) */
@@ -132,6 +132,12 @@ export interface PaymentProvider {
    * Used for the admin order detail page.
    */
   retrieveSession(sessionId: string): Promise<PaymentSession | null>;
+
+  /**
+   * Retrieve detailed session info including line items, metadata, and dashboard URL.
+   * Used for the admin order detail view.
+   */
+  retrieveSessionDetail(sessionId: string): Promise<PaymentSessionDetail | null>;
 
   /**
    * List recent checkout sessions/orders from the provider.

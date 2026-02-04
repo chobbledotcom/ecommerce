@@ -1870,6 +1870,91 @@ describe("stripe-provider additional operations", () => {
       },
     );
   });
+
+  test("retrieveCheckoutSessionExpanded retrieves via stripe-mock", async () => {
+    const { stripeApi } = await import("#lib/stripe.ts");
+    const created = await stripeApi.createCheckoutSession({
+      lineItems: [{ name: "Expand Test", unitPrice: 800, quantity: 1 }],
+      metadata: {},
+      successUrl: "https://example.com/success",
+      cancelUrl: "https://example.com/cancel",
+      currency: "usd",
+    });
+    expect(created).not.toBeNull();
+
+    const expanded = await stripeApi.retrieveCheckoutSessionExpanded(created!.sessionId);
+    expect(expanded).not.toBeNull();
+    expect(expanded!.id).toBe(created!.sessionId);
+  });
+
+  test("wrapper retrieveCheckoutSessionExpanded delegates", async () => {
+    const { retrieveCheckoutSessionExpanded, stripeApi } = await import("#lib/stripe.ts");
+    const created = await stripeApi.createCheckoutSession({
+      lineItems: [{ name: "Wrapper Expand", unitPrice: 600, quantity: 1 }],
+      metadata: {},
+      successUrl: "https://example.com/success",
+      cancelUrl: "https://example.com/cancel",
+      currency: "usd",
+    });
+    expect(created).not.toBeNull();
+
+    const result = await retrieveCheckoutSessionExpanded(created!.sessionId);
+    expect(result).not.toBeNull();
+  });
+
+  test("retrieveCheckoutSession with expand param", async () => {
+    const { stripeApi } = await import("#lib/stripe.ts");
+    const created = await stripeApi.createCheckoutSession({
+      lineItems: [{ name: "Expand Param", unitPrice: 700, quantity: 1 }],
+      metadata: {},
+      successUrl: "https://example.com/success",
+      cancelUrl: "https://example.com/cancel",
+      currency: "usd",
+    });
+    expect(created).not.toBeNull();
+
+    const result = await stripeApi.retrieveCheckoutSession(created!.sessionId, ["line_items"]);
+    expect(result).not.toBeNull();
+    expect(result!.id).toBe(created!.sessionId);
+  });
+
+  test("retrieveSessionDetail maps expanded session to detail", async () => {
+    const { stripePaymentProvider } = await import("#lib/stripe-provider.ts");
+    const { stripeApi } = await import("#lib/stripe.ts");
+
+    const created = await stripeApi.createCheckoutSession({
+      lineItems: [{ name: "Detail Test", unitPrice: 1200, quantity: 2 }],
+      metadata: { order_ref: "test123" },
+      successUrl: "https://example.com/success",
+      cancelUrl: "https://example.com/cancel",
+      currency: "gbp",
+    });
+    expect(created).not.toBeNull();
+
+    const detail = await stripePaymentProvider.retrieveSessionDetail(created!.sessionId);
+    expect(detail).not.toBeNull();
+    if (detail) {
+      expect(detail.id).toBe(created!.sessionId);
+      expect(detail.providerType).toBe("stripe");
+      expect(detail.dashboardUrl).toContain("dashboard.stripe.com");
+      expect(detail.dashboardUrl).toContain(created!.sessionId);
+      expect(Array.isArray(detail.lineItems)).toBe(true);
+      expect(typeof detail.metadata).toBe("object");
+    }
+  });
+
+  test("retrieveSessionDetail returns null for non-existent session", async () => {
+    const { stripePaymentProvider } = await import("#lib/stripe-provider.ts");
+    const { stripeApi } = await import("#lib/stripe.ts");
+
+    await withMocks(
+      () => spyOn(stripeApi, "retrieveCheckoutSessionExpanded").mockResolvedValue(null),
+      async () => {
+        const detail = await stripePaymentProvider.retrieveSessionDetail("cs_missing");
+        expect(detail).toBeNull();
+      },
+    );
+  });
 });
 
 // =========================================================================

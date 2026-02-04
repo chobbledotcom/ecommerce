@@ -128,7 +128,8 @@ export const stripeApi: {
   getStripeClient: () => Promise<Stripe | null>;
   resetStripeClient: () => void;
   createCheckoutSession: (params: CreateCheckoutParams) => Promise<CheckoutSessionResult>;
-  retrieveCheckoutSession: (sessionId: string) => Promise<Stripe.Checkout.Session | null>;
+  retrieveCheckoutSession: (sessionId: string, expand?: string[]) => Promise<Stripe.Checkout.Session | null>;
+  retrieveCheckoutSessionExpanded: (sessionId: string) => Promise<Stripe.Checkout.Session | null>;
   listCheckoutSessions: (params: { limit: number; startingAfter?: string }) => Promise<StripeSessionListResult | null>;
   refundPayment: (intentId: string) => Promise<Stripe.Refund | null>;
   setupWebhookEndpoint: (
@@ -173,13 +174,26 @@ export const stripeApi: {
       ErrorCode.STRIPE_CHECKOUT,
     ),
 
-  /** Retrieve a checkout session by ID */
+  /** Retrieve a checkout session by ID, optionally expanding related objects */
   retrieveCheckoutSession: (
     sessionId: string,
+    expand?: string[],
   ): Promise<Stripe.Checkout.Session | null> =>
     withClient(
-      (s) => s.checkout.sessions.retrieve(sessionId),
+      (s) => s.checkout.sessions.retrieve(
+        sessionId,
+        expand ? { expand } : undefined,
+      ),
       ErrorCode.STRIPE_SESSION,
+    ),
+
+  /** Retrieve a checkout session with line items and customer details expanded */
+  retrieveCheckoutSessionExpanded: (
+    sessionId: string,
+  ): Promise<Stripe.Checkout.Session | null> =>
+    stripeApi.retrieveCheckoutSession(
+      sessionId,
+      ["line_items", "customer_details"],
     ),
 
   /** List checkout sessions */
@@ -352,6 +366,8 @@ export const createCheckoutSession = (params: CreateCheckoutParams) =>
   stripeApi.createCheckoutSession(params);
 export const retrieveCheckoutSession = (sessionId: string) =>
   stripeApi.retrieveCheckoutSession(sessionId);
+export const retrieveCheckoutSessionExpanded = (sessionId: string) =>
+  stripeApi.retrieveCheckoutSessionExpanded(sessionId);
 export const listCheckoutSessions = (params: { limit: number; startingAfter?: string }) =>
   stripeApi.listCheckoutSessions(params);
 export const refundPayment = (id: string) => stripeApi.refundPayment(id);
