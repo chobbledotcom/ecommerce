@@ -131,7 +131,7 @@ describe("server (settings - allowed origins and currency)", () => {
       );
       expect(response.status).toBe(400);
       const html = await response.text();
-      expect(html).toContain("Invalid currency code");
+      expect(html).toContain("Currency code must be 3 uppercase letters");
     });
 
     test("rejects invalid currency code (too long)", async () => {
@@ -149,7 +149,7 @@ describe("server (settings - allowed origins and currency)", () => {
       );
       expect(response.status).toBe(400);
       const html = await response.text();
-      expect(html).toContain("Invalid currency code");
+      expect(html).toContain("Currency code must be 3 uppercase letters");
     });
 
     test("rejects non-alpha currency code", async () => {
@@ -167,7 +167,7 @@ describe("server (settings - allowed origins and currency)", () => {
       );
       expect(response.status).toBe(400);
       const html = await response.text();
-      expect(html).toContain("Invalid currency code");
+      expect(html).toContain("Currency code must be 3 uppercase letters");
     });
 
     test("rejects invalid CSRF token", async () => {

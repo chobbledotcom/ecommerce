@@ -9,7 +9,6 @@ import {
   isInviteValid,
   setUserPassword,
 } from "#lib/db/users.ts";
-import { validateForm } from "#lib/forms.tsx";
 import { createRouter, defineRoutes } from "#routes/router.ts";
 import type { RouteParams } from "#routes/router.ts";
 import {
@@ -20,7 +19,7 @@ import {
   redirect,
   requireCsrfForm,
 } from "#routes/utils.ts";
-import { joinFields } from "#templates/fields.ts";
+import { parseJoinForm } from "#templates/fields.ts";
 import {
   joinCompletePage,
   joinErrorPage,
@@ -70,22 +69,12 @@ const handleJoinPost = (request: Request, params: RouteParams): Promise<Response
 
     const { form } = csrf;
     const formCsrf = form.get("csrf_token")!;
-    const validation = validateForm(form, joinFields);
+    const validation = parseJoinForm(form);
     if (!validation.valid) {
       return htmlResponse(joinPage(code, username, validation.error, formCsrf), 400);
     }
 
-    const password = validation.values.password as string;
-    const passwordConfirm = validation.values.password_confirm as string;
-
-    if (password.length < 8) {
-      return htmlResponse(joinPage(code, username, "Password must be at least 8 characters", formCsrf), 400);
-    }
-    if (password !== passwordConfirm) {
-      return htmlResponse(joinPage(code, username, "Passwords do not match", formCsrf), 400);
-    }
-
-    await setUserPassword(user.id, password);
+    await setUserPassword(user.id, validation.password);
     return redirect("/join/complete");
   });
 

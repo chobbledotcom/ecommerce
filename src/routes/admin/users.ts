@@ -15,7 +15,6 @@ import {
   hasPassword,
   isUsernameTaken,
 } from "#lib/db/users.ts";
-import { validateForm } from "#lib/forms.tsx";
 import { getAllowedDomain } from "#lib/config.ts";
 import { defineRoutes } from "#routes/router.ts";
 import type { RouteParams } from "#routes/router.ts";
@@ -28,18 +27,15 @@ import {
   requireOwnerOr,
   withOwnerAuthForm,
 } from "#routes/utils.ts";
-import type { AdminLevel, AdminSession, User } from "#lib/types.ts";
+import type { AdminSession, User } from "#lib/types.ts";
 import {
   adminUsersPage,
   type DisplayUser,
 } from "#templates/admin/users.tsx";
-import { inviteUserFields } from "#templates/fields.ts";
+import { parseInviteUserForm } from "#templates/fields.ts";
 
 /** Invite link expiry: 7 days */
 const INVITE_EXPIRY_MS = 7 * 24 * 60 * 60 * 1000;
-
-/** Valid admin levels */
-const VALID_ADMIN_LEVELS = ["owner", "manager"] as const;
 
 /**
  * Decrypt user data for display
@@ -90,7 +86,7 @@ const handleUsersGet = (request: Request): Promise<Response> =>
  */
 const handleUsersPost = (request: Request): Promise<Response> =>
   withOwnerAuthForm(request, async (session, form) => {
-    const validation = validateForm(form, inviteUserFields);
+    const validation = parseInviteUserForm(form);
     if (!validation.valid) {
       return htmlResponse(
         await renderUsersPage(session, undefined, validation.error),
@@ -98,15 +94,7 @@ const handleUsersPost = (request: Request): Promise<Response> =>
       );
     }
 
-    const username = validation.values.username as string;
-    const adminLevel = validation.values.admin_level as string;
-
-    if (!VALID_ADMIN_LEVELS.includes(adminLevel as typeof VALID_ADMIN_LEVELS[number])) {
-      return htmlResponse(
-        await renderUsersPage(session, undefined, "Invalid role"),
-        400,
-      );
-    }
+    const { username, adminLevel } = validation;
 
     // Check if username is taken
     if (await isUsernameTaken(username)) {
@@ -127,7 +115,7 @@ const handleUsersPost = (request: Request): Promise<Response> =>
 
     await createInvitedUser(
       username,
-      adminLevel as AdminLevel,
+      adminLevel,
       codeHash,
       expiry,
     );

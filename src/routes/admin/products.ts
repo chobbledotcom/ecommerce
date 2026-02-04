@@ -5,7 +5,6 @@
 
 import { getProductsWithAvailableStock, productsTable } from "#lib/db/products.ts";
 import { getDb } from "#lib/db/client.ts";
-import { validateForm } from "#lib/forms.tsx";
 import type { Product } from "#lib/types.ts";
 import { defineRoutes } from "#routes/router.ts";
 import { loginResponse } from "#routes/admin/dashboard.ts";
@@ -17,7 +16,7 @@ import {
   withSession,
 } from "#routes/utils.ts";
 import { adminProductFormPage, adminProductListPage } from "#templates/admin/products.tsx";
-import { productFields } from "#templates/fields.ts";
+import { parseProductForm } from "#templates/fields.ts";
 
 /** Parse product ID from path like /admin/product/123/edit */
 const parseProductId = (path: string): number | null => {
@@ -59,19 +58,18 @@ const handleNewProductGet = (request: Request): Promise<Response> =>
  */
 const handleNewProductPost = (request: Request): Promise<Response> =>
   withAuthForm(request, async (session, form) => {
-    const validation = validateForm(form, productFields);
+    const validation = parseProductForm(form);
     if (!validation.valid) {
       return htmlResponse(adminProductFormPage(session, {}, validation.error), 400);
     }
 
-    const { values } = validation;
     await productsTable.insert({
-      name: values.name as string,
-      sku: values.sku as string,
-      description: (values.description as string) ?? "",
-      unitPrice: values.unit_price as number,
-      stock: values.stock as number,
-      active: Number(values.active ?? 1),
+      name: validation.name,
+      sku: validation.sku,
+      description: validation.description,
+      unitPrice: validation.unitPrice,
+      stock: validation.stock,
+      active: validation.active,
     });
 
     return redirect("/admin/");
@@ -109,7 +107,7 @@ const handleUpdateProduct = (request: Request, path: string): Promise<Response> 
     const product = await getProductById(productId);
     if (!product) return htmlResponse("Not found", 404);
 
-    const validation = validateForm(form, productFields);
+    const validation = parseProductForm(form);
     if (!validation.valid) {
       return htmlResponse(
         adminProductFormPage(session, {}, validation.error, productId),
@@ -117,16 +115,15 @@ const handleUpdateProduct = (request: Request, path: string): Promise<Response> 
       );
     }
 
-    const { values } = validation;
     await getDb().execute({
       sql: `UPDATE products SET name = ?, sku = ?, description = ?, unit_price = ?, stock = ?, active = ? WHERE id = ?`,
       args: [
-        values.name as string,
-        values.sku as string,
-        (values.description as string) ?? "",
-        values.unit_price as number,
-        values.stock as number,
-        Number(values.active ?? 1),
+        validation.name,
+        validation.sku,
+        validation.description,
+        validation.unitPrice,
+        validation.stock,
+        validation.active,
         productId,
       ] as (string | number)[],
     });

@@ -2,7 +2,9 @@
  * Form field definitions for all forms
  */
 
+import { createFormParser } from "#lib/forms.tsx";
 import type { Field } from "#lib/forms.tsx";
+import type { AdminLevel } from "#lib/types.ts";
 
 /**
  * Validate email format
@@ -271,3 +273,140 @@ export const joinFields: Field[] = [
     required: true,
   },
 ];
+
+// ---------------------------------------------------------------------------
+// Typed form parsers — parse at the boundary, return strong types
+// ---------------------------------------------------------------------------
+
+/**
+ * Validate a password + confirmation pair.
+ * Returns error string or null on success.
+ */
+const checkPasswords = (
+  password: string,
+  confirm: string,
+  label = "Password",
+  pluralLabel = "Passwords",
+): string | null => {
+  if (password.length < 8) return `${label} must be at least 8 characters`;
+  if (password !== confirm) return `${pluralLabel} do not match`;
+  return null;
+};
+
+/** Validate a 3-letter ISO currency code, returns uppercased code or error */
+const parseCurrency = (raw: string, fallback?: string): string | { code: string } => {
+  const code = (raw || fallback || "").toUpperCase();
+  if (!/^[A-Z]{3}$/.test(code)) return "Currency code must be 3 uppercase letters";
+  return { code };
+};
+
+/** Parse login form → { username, password } */
+export const parseLoginCredentials = createFormParser(
+  loginFields,
+  (v) => ({
+    username: v.username as string,
+    password: v.password as string,
+  }),
+);
+
+/** Parse setup form → { username, password, currency } */
+export const parseSetupForm = createFormParser(
+  setupFields,
+  (v) => {
+    const pw = v.admin_password as string;
+    const confirm = v.admin_password_confirm as string;
+    const pwError = checkPasswords(pw, confirm);
+    if (pwError) return pwError;
+    const curr = parseCurrency(v.currency_code as string, "GBP");
+    if (typeof curr === "string") return curr;
+    return { username: v.admin_username as string, password: pw, currency: curr.code };
+  },
+);
+
+/** Parse join (invite acceptance) form → { password } */
+export const parseJoinForm = createFormParser(
+  joinFields,
+  (v) => {
+    const pw = v.password as string;
+    const confirm = v.password_confirm as string;
+    const error = checkPasswords(pw, confirm);
+    if (error) return error;
+    return { password: pw };
+  },
+);
+
+/** Parse change-password form → { currentPassword, newPassword } */
+export const parseChangePassword = createFormParser(
+  changePasswordFields,
+  (v) => {
+    const newPw = v.new_password as string;
+    const confirm = v.new_password_confirm as string;
+    const error = checkPasswords(newPw, confirm, "New password", "New passwords");
+    if (error) return error;
+    return { currentPassword: v.current_password as string, newPassword: newPw };
+  },
+);
+
+/** Typed product input — what the product form produces */
+export type ProductFormData = {
+  name: string;
+  sku: string;
+  description: string;
+  unitPrice: number;
+  stock: number;
+  active: number;
+};
+
+/** Parse product form → ProductFormData */
+export const parseProductForm = createFormParser(
+  productFields,
+  (v): ProductFormData => ({
+    name: v.name as string,
+    sku: v.sku as string,
+    description: (v.description as string) ?? "",
+    unitPrice: v.unit_price as number,
+    stock: v.stock as number,
+    active: Number(v.active ?? 1),
+  }),
+);
+
+/** Parse invite-user form → { username, adminLevel } with validated role */
+export const parseInviteUserForm = createFormParser(
+  inviteUserFields,
+  (v): { username: string; adminLevel: AdminLevel } | string => {
+    const level = v.admin_level as string;
+    if (level !== "owner" && level !== "manager") return "Invalid role";
+    return { username: v.username as string, adminLevel: level };
+  },
+);
+
+/** Parse Stripe key form → { stripeSecretKey } */
+export const parseStripeKeyForm = createFormParser(
+  stripeKeyFields,
+  (v) => ({ stripeSecretKey: v.stripe_secret_key as string }),
+);
+
+/** Parse Square credentials form → { accessToken, locationId } */
+export const parseSquareTokenForm = createFormParser(
+  squareAccessTokenFields,
+  (v) => ({
+    accessToken: v.square_access_token as string,
+    locationId: v.square_location_id as string,
+  }),
+);
+
+/** Parse Square webhook form → { signatureKey } */
+export const parseSquareWebhookForm = createFormParser(
+  squareWebhookFields,
+  (v) => ({ signatureKey: v.square_webhook_signature_key as string }),
+);
+
+/** Parse currency settings form → { currencyCode } */
+export const parseCurrencyForm = createFormParser(
+  currencyFields,
+  (v): { currencyCode: string } | string => {
+    const curr = parseCurrency(v.currency_code as string);
+    if (typeof curr === "string") return curr;
+    return { currencyCode: curr.code };
+  },
+);

@@ -172,3 +172,35 @@ export const validateForm = (
  */
 export const renderError = (error?: string): string =>
   error ? String(<div class="error">{error}</div>) : "";
+
+/**
+ * Typed form parse result — discriminated union
+ *
+ * Success branch carries typed fields from the extractor.
+ * Failure branch carries the error message string.
+ */
+export type ParseResult<T> =
+  | ({ valid: true } & T)
+  | { valid: false; error: string };
+
+/**
+ * Create a typed form parser from field definitions and an extractor.
+ *
+ * The extractor receives validated FieldValues and returns either:
+ * - A typed object (success)
+ * - A string (error message for cross-field validation failures)
+ *
+ * This pushes all `as` casts to the parse boundary so route handlers
+ * receive strongly typed values with no casting required.
+ */
+export const createFormParser = <T extends Record<string, unknown>>(
+  fields: Field[],
+  extract: (values: FieldValues) => T | string,
+) =>
+(form: URLSearchParams): ParseResult<T> => {
+  const validation = validateForm(form, fields);
+  if (!validation.valid) return validation;
+  const result = extract(validation.values);
+  if (typeof result === "string") return { valid: false, error: result };
+  return { ...result, valid: true as const };
+};

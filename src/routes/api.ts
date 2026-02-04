@@ -58,26 +58,33 @@ const handleGetProducts = async (): Promise<Response> => {
 /** Cart item from the checkout request */
 type CartItem = { sku: string; quantity: number };
 
-/** Validate checkout request body */
-const parseCheckoutBody = (body: unknown): CartItem[] | null => {
-  if (!body || typeof body !== "object") return null;
-  const { items } = body as { items?: unknown };
-  if (!Array.isArray(items) || items.length === 0) return null;
-  for (const item of items) {
-    if (!item || typeof item !== "object") return null;
-    const { sku, quantity } = item as { sku?: unknown; quantity?: unknown };
-    if (typeof sku !== "string" || !sku) return null;
-    if (typeof quantity !== "number" || quantity < 1 || !Number.isInteger(quantity)) return null;
-  }
-  return items as CartItem[];
+/** Typed checkout request — what the JSON body produces after parsing */
+type CheckoutRequest = {
+  items: CartItem[];
+  successUrl: string;
+  cancelUrl: string;
 };
 
-/** Parse and validate success/cancel URLs */
-const parseUrls = (body: unknown): { successUrl: string; cancelUrl: string } | null => {
-  if (!body || typeof body !== "object") return null;
-  const { success_url, cancel_url } = body as { success_url?: unknown; cancel_url?: unknown };
-  if (typeof success_url !== "string" || typeof cancel_url !== "string") return null;
-  return { successUrl: success_url, cancelUrl: cancel_url };
+/** Parse and validate the full checkout request body, returning typed data or error string */
+const parseCheckoutRequest = (body: unknown): CheckoutRequest | string => {
+  if (!body || typeof body !== "object") return "Invalid items array";
+  const { items, success_url, cancel_url } = body as Record<string, unknown>;
+
+  if (!Array.isArray(items) || items.length === 0) return "Invalid items array";
+  const parsed: CartItem[] = [];
+  for (const item of items) {
+    if (!item || typeof item !== "object") return "Invalid items array";
+    const { sku, quantity } = item as Record<string, unknown>;
+    if (typeof sku !== "string" || !sku) return "Invalid items array";
+    if (typeof quantity !== "number" || quantity < 1 || !Number.isInteger(quantity))
+      return "Invalid items array";
+    parsed.push({ sku, quantity });
+  }
+
+  if (typeof success_url !== "string" || typeof cancel_url !== "string")
+    return "Missing success_url or cancel_url";
+
+  return { items: parsed, successUrl: success_url, cancelUrl: cancel_url };
 };
 
 /**
@@ -94,15 +101,12 @@ const handlePostCheckout = async (request: Request): Promise<Response> => {
     return jsonResponse({ error: "Invalid JSON" }, 400);
   }
 
-  const items = parseCheckoutBody(body);
-  if (!items) {
-    return jsonResponse({ error: "Invalid items array" }, 400);
+  const checkout = parseCheckoutRequest(body);
+  if (typeof checkout === "string") {
+    return jsonResponse({ error: checkout }, 400);
   }
 
-  const urls = parseUrls(body);
-  if (!urls) {
-    return jsonResponse({ error: "Missing success_url or cancel_url" }, 400);
-  }
+  const { items, successUrl, cancelUrl } = checkout;
 
   // Fetch products by SKU (backend is source of truth for prices)
   const skus = map((i: CartItem) => i.sku)(items);
@@ -149,8 +153,8 @@ const handlePostCheckout = async (request: Request): Promise<Response> => {
       };
     })(items),
     metadata: { reservation_ids: reservationIds.join(",") },
-    successUrl: urls.successUrl,
-    cancelUrl: urls.cancelUrl,
+    successUrl,
+    cancelUrl,
     currency: currency.toLowerCase(),
   });
 

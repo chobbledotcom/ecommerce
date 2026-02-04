@@ -10,7 +10,6 @@ import {
 } from "#lib/db/login-attempts.ts";
 import { createSession, deleteSession } from "#lib/db/sessions.ts";
 import { getUserByUsername, verifyUserPassword } from "#lib/db/users.ts";
-import { validateForm } from "#lib/forms.tsx";
 import { loginResponse } from "#routes/admin/dashboard.ts";
 import { clearSessionCookie } from "#routes/admin/utils.ts";
 import { defineRoutes } from "#routes/router.ts";
@@ -22,7 +21,7 @@ import {
   redirect,
   withSession,
 } from "#routes/utils.ts";
-import { loginFields } from "#templates/fields.ts";
+import { parseLoginCredentials } from "#templates/fields.ts";
 import { getEnv } from "#lib/env.ts";
 
 /** Random delay between 100-200ms to prevent timing attacks */
@@ -69,14 +68,13 @@ const handleAdminLogin = async (
   }
 
   const form = await parseFormData(request);
-  const validation = validateForm(form, loginFields);
+  const validation = parseLoginCredentials(form);
 
   if (!validation.valid) {
     return loginResponse(validation.error, 400);
   }
 
-  const username = validation.values.username as string;
-  const password = validation.values.password as string;
+  const { username, password } = validation;
 
   // Look up user by username
   const user = await getUserByUsername(username);
