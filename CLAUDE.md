@@ -116,46 +116,13 @@ Tests use a custom compatibility layer (`#test-compat`) that provides Jest-like 
 
 ## Test Quality Standards
 
-All tests must meet these mandatory criteria:
+See [TEST_CRITERIA.md](TEST_CRITERIA.md) for the full test quality criteria.
 
-### 1. Tests Production Code, Not Reimplementations
-- Import and call actual production functions
-- Never copy-paste or reimplement production logic in tests
-- Import constants from production code, don't hardcode
-
-### 2. Not Tautological
-- Never assert a value you just set (e.g., `expect(true).toBe(true)`)
-- Always have production code execution between setup and assertion
-- Verify behavior, not that JavaScript assignment works
-
-### 3. Tests Behavior, Not Implementation Details
-- Verify observable outcomes (HTTP status, content, state changes)
-- Refactoring shouldn't break tests unless behavior changes
-- Answer "does it work?" not "is it structured this way?"
-
-### 4. Has Clear Failure Semantics
-- Test names describe the specific behavior being verified
-- When a test fails, it should be obvious what's broken
-- Use descriptive assertion messages
-
-### 5. Isolated and Repeatable
-- Tests clean up after themselves (use `beforeEach`/`afterEach`)
-- Tests don't depend on other tests running first
-- No time-dependent flakiness
-
-### 6. Tests One Thing
-- Each test has a single reason to fail
-- If you need "and" in the description, split the test
-
-### Coverage Requirements
-
-100% test coverage is required to merge into main. To find which specific lines are uncovered, run:
-
-```bash
-deno task test:coverage
-```
-
-Then check `coverage/` for detailed coverage information.
+Key points:
+- Prefer testing through the HTTP API (`handleRequest()` / `awaitTestRequest()`) over calling internal functions
+- Treat the server as a black box — assert on status codes, response content, and database state
+- Never export constants solely for test use (enforced by `code-quality.test.ts`)
+- 100% line coverage required (`deno task test:coverage`)
 
 ### Test Utilities
 
@@ -165,13 +132,4 @@ Use helpers from `#test-utils` instead of defining locally:
 import { mockRequest, mockFormRequest, createTestDb, resetDb } from "#test-utils";
 ```
 
-### Anti-Patterns to Avoid
-
-| Anti-Pattern | What To Do Instead |
-|--------------|-------------------|
-| `expect(true).toBe(true)` | Assert on actual behavior/state |
-| Reimplementing production logic | Import and call production code |
-| Duplicating test helpers | Use `#test-utils` |
-| Magic numbers/strings | Import constants from production |
-| Testing private internals | Test public API behavior |
 
