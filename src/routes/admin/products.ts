@@ -18,11 +18,10 @@ import {
 import { adminProductFormPage, adminProductListPage } from "#templates/admin/products.tsx";
 import { parseProductForm } from "#templates/fields.ts";
 
-/** Parse product ID from path like /admin/product/123/edit */
-const parseProductId = (path: string): number | null => {
-  const match = path.match(/^\/admin\/product\/(\d+)/);
-  return match ? Number(match[1]) : null;
-};
+/** Parse product ID from path like /admin/product/123/edit.
+ *  Only called from routes already matched by /admin/product/\d+. */
+const parseProductId = (path: string): number =>
+  Number(path.match(/^\/admin\/product\/(\d+)/)![1]);
 
 /** Get a product by ID or return null */
 const getProductById = async (id: number): Promise<Product | null> => {

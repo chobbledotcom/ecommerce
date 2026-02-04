@@ -482,7 +482,7 @@ export const resetTestSession = (): void => {
 export const authenticatedFormRequest = async <T>(
   path: string,
   formData: Record<string, string>,
-  onSuccess: () => Promise<T>,
+  onSuccess: () => T | Promise<T>,
   errorContext: string,
 ): Promise<T> => {
   const session = await getTestSession();

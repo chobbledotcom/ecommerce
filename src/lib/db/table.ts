@@ -356,8 +356,8 @@ export const defineTable = <Row, Input = Row>(config: {
   };
 };
 
-/** Async transform function type for encryption */
-type AsyncTransform<T> = (v: T) => Promise<T>;
+/** Transform function type for encryption (sync or async) */
+type AsyncTransform<T> = (v: T) => T | Promise<T>;
 
 /** Wrap encrypt/decrypt functions to handle null values */
 const wrapNullable =

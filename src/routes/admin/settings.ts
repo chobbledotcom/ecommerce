@@ -296,7 +296,8 @@ const handleResetDatabasePost = (request: Request): Promise<Response> =>
  */
 const handleAllowedOriginsPost = (request: Request): Promise<Response> =>
   withOwnerAuthForm(request, async (_session, form) => {
-    const origins = (form.get("allowed_origins") ?? "").trim();
+    const raw = form.get("allowed_origins");
+    const origins = raw ? raw.trim() : "";
     await setSetting(CONFIG_KEYS.ALLOWED_ORIGINS, origins);
     return redirectWithSuccess("/admin/settings", "Allowed origins updated");
   });

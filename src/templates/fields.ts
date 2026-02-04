@@ -296,8 +296,8 @@ const checkPasswords = (
 };
 
 /** Validate a 3-letter ISO currency code, returns uppercased code or error */
-const parseCurrency = (raw: string, fallback?: string): string | { code: string } => {
-  const code = (raw || fallback || "").toUpperCase();
+const parseCurrency = (raw: string, fallback = ""): string | { code: string } => {
+  const code = (raw || fallback).toUpperCase();
   if (!/^[A-Z]{3}$/.test(code)) return "Currency code must be 3 uppercase letters";
   return { code };
 };
