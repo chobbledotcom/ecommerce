@@ -56,6 +56,18 @@ const handleOrderDetail = (
     return htmlResponse(adminOrderDetailPage(detail, reservations, session, undefined, success));
   });
 
+/** Render the detail page with an error message */
+const detailError = async (
+  orderRef: string,
+  session: Parameters<typeof adminOrderDetailPage>[2],
+  detail: Parameters<typeof adminOrderDetailPage>[0],
+  error: string,
+  status: number,
+): Promise<Response> => {
+  const reservations = await getReservationsBySession(orderRef);
+  return htmlResponse(adminOrderDetailPage(detail, reservations, session, error), status);
+};
+
 /**
  * POST /admin/orders/:orderRef/refund — issue a refund
  */
@@ -65,18 +77,6 @@ const handleRefund = (
 ): Promise<Response> =>
   withAuthForm(request, async (session, form) => {
     const orderRef = params.orderRef!;
-    const confirmRefund = form.get("confirm_refund") ?? "";
-    if (confirmRefund !== "REFUND") {
-      const provider = await getActivePaymentProvider();
-      if (!provider) return htmlResponse("Payment provider not configured", 400);
-      const detail = await provider.retrieveSessionDetail(orderRef);
-      if (!detail) return htmlResponse("Order not found", 404);
-      const reservations = await getReservationsBySession(orderRef);
-      return htmlResponse(
-        adminOrderDetailPage(detail, reservations, session, "Type REFUND exactly to confirm."),
-        400,
-      );
-    }
 
     const provider = await getActivePaymentProvider();
     if (!provider) return htmlResponse("Payment provider not configured", 400);
@@ -84,24 +84,20 @@ const handleRefund = (
     const detail = await provider.retrieveSessionDetail(orderRef);
     if (!detail) return htmlResponse("Order not found", 404);
 
+    const confirmRefund = form.get("confirm_refund") ?? "";
+    if (confirmRefund !== "REFUND") {
+      return detailError(orderRef, session, detail, "Type REFUND exactly to confirm.", 400);
+    }
+
     if (!detail.paymentReference) {
-      const reservations = await getReservationsBySession(orderRef);
-      return htmlResponse(
-        adminOrderDetailPage(detail, reservations, session, "No payment reference found for this order."),
-        400,
-      );
+      return detailError(orderRef, session, detail, "No payment reference found for this order.", 400);
     }
 
-    const success = await provider.refundPayment(detail.paymentReference);
-    if (!success) {
-      const reservations = await getReservationsBySession(orderRef);
-      return htmlResponse(
-        adminOrderDetailPage(detail, reservations, session, "Refund failed. Check the provider dashboard for details."),
-        500,
-      );
+    const refundResult = await provider.refundPayment(detail.paymentReference);
+    if (!refundResult) {
+      return detailError(orderRef, session, detail, "Refund failed. Check the provider dashboard for details.", 500);
     }
 
-    // Restock the confirmed reservations
     await restockFromRefund(orderRef);
 
     return new Response(null, {
