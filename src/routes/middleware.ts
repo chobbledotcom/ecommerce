@@ -3,7 +3,7 @@
  */
 
 import { compact } from "#fp";
-import { getAllowedDomain } from "#lib/config.ts";
+import { getAllowedDomain, getAllowedOrigins } from "#lib/config.ts";
 
 /**
  * Security headers for all responses
@@ -42,11 +42,9 @@ export const getSecurityHeaders = (
 });
 
 /**
- * Check if a path is embeddable (public ticket pages only)
- * Paths are normalized to strip trailing slashes
+ * Check if a path is embeddable — currently no pages are embeddable
  */
-export const isEmbeddablePath = (path: string): boolean =>
-  /^\/ticket\/[a-z0-9]+(?:-[a-z0-9]+)*$/.test(path);
+export const isEmbeddablePath = (_path: string): boolean => false;
 
 /**
  * Extract hostname from Host header (removes port if present)
@@ -69,6 +67,10 @@ export const isValidDomain = (request: Request): boolean => {
   return getHostname(host) === getAllowedDomain();
 };
 
+/** Check if a path is a JSON API endpoint */
+export const isApiPath = (path: string): boolean =>
+  path.startsWith("/api/");
+
 /**
  * Check if path is a webhook endpoint that accepts JSON
  */
@@ -78,7 +80,7 @@ export const isWebhookPath = (path: string): boolean =>
 /**
  * Validate Content-Type for POST requests
  * Returns true if the request is valid (not a POST, or has correct Content-Type)
- * Webhook endpoints accept application/json, all others require form-urlencoded
+ * Webhook and API endpoints accept application/json, all others require form-urlencoded
  */
 export const isValidContentType = (request: Request, path: string): boolean => {
   if (request.method !== "POST") {
@@ -86,8 +88,8 @@ export const isValidContentType = (request: Request, path: string): boolean => {
   }
   const contentType = request.headers.get("content-type") || "";
 
-  // Webhook endpoints accept JSON
-  if (isWebhookPath(path)) {
+  // Webhook and API endpoints accept JSON
+  if (isWebhookPath(path) || isApiPath(path)) {
     return contentType.startsWith("application/json");
   }
 
@@ -119,23 +121,68 @@ export const domainRejectionResponse = (): Response =>
     },
   });
 
+/** Clone a response with additional headers merged in */
+const withHeaders = (
+  response: Response,
+  extra: Record<string, string>,
+): Response => {
+  const headers = new Headers(response.headers);
+  for (const [key, value] of Object.entries(extra)) {
+    headers.set(key, value);
+  }
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+};
+
 /**
  * Apply security headers to a response
  */
 export const applySecurityHeaders = (
   response: Response,
   embeddable: boolean,
-): Response => {
-  const headers = new Headers(response.headers);
-  const securityHeaders = getSecurityHeaders(embeddable);
+): Response => withHeaders(response, getSecurityHeaders(embeddable));
 
-  for (const [key, value] of Object.entries(securityHeaders)) {
-    headers.set(key, value);
-  }
+/**
+ * Build CORS headers for an origin if it's in the allowed list.
+ * Returns empty object if origin is not allowed.
+ */
+export const corsHeaders = async (
+  origin: string | null,
+): Promise<Record<string, string>> => {
+  if (!origin) return {};
+  const allowed = await getAllowedOrigins();
+  if (!allowed.includes(origin)) return {};
+  return {
+    "access-control-allow-origin": origin,
+    "access-control-allow-methods": "GET, POST, OPTIONS",
+    "access-control-allow-headers": "content-type",
+  };
+};
 
-  return new Response(response.body, {
-    status: response.status,
-    statusText: response.statusText,
-    headers,
-  });
+/**
+ * Handle OPTIONS preflight for API paths
+ */
+export const handlePreflight = async (
+  request: Request,
+): Promise<Response | null> => {
+  const origin = request.headers.get("origin");
+  const headers = await corsHeaders(origin);
+  if (Object.keys(headers).length === 0) return null;
+  return new Response(null, { status: 204, headers });
+};
+
+/**
+ * Apply CORS headers to a response
+ */
+export const applyCorsHeaders = async (
+  response: Response,
+  request: Request,
+): Promise<Response> => {
+  const origin = request.headers.get("origin");
+  const cors = await corsHeaders(origin);
+  if (Object.keys(cors).length === 0) return response;
+  return withHeaders(response, cors);
 };

@@ -5,74 +5,53 @@
  * provider-agnostic PaymentProvider contract.
  */
 
-import type { Event } from "#lib/types.ts";
-import {
-  extractSessionMetadata,
-  hasRequiredSessionMetadata,
-  toCheckoutResult,
-} from "#lib/payment-helpers.ts";
+import { toSessionListResult } from "#lib/payment-helpers.ts";
 import type {
-  MultiRegistrationIntent,
+  CheckoutSessionResult,
+  CreateCheckoutParams,
+  ListSessionsParams,
   PaymentProvider,
   PaymentProviderType,
-  RegistrationIntent,
-  ValidatedPaymentSession,
+  PaymentSessionListResult,
   WebhookEvent,
   WebhookSetupResult,
   WebhookVerifyResult,
 } from "#lib/payments.ts";
+import type { PaymentSession } from "#lib/types.ts";
 import {
-  createCheckoutSessionWithIntent,
-  createMultiCheckoutSession,
+  createCheckoutSession,
+  listCheckoutSessions,
   refundPayment as stripeRefund,
   retrieveCheckoutSession,
   setupWebhookEndpoint,
   verifyWebhookSignature,
 } from "#lib/stripe.ts";
 
+/** Map a Stripe checkout session to our PaymentSession type */
+const toPaymentSession = (s: {
+  id: string;
+  payment_status: string;
+  amount_total?: number | null;
+  currency?: string | null;
+  customer_details?: { email?: string | null } | null;
+  customer_email?: string | null;
+  created: number;
+  url?: string | null;
+}): PaymentSession => ({
+  id: s.id,
+  status: s.payment_status,
+  amount: s.amount_total ?? null,
+  currency: s.currency ?? null,
+  customerEmail: s.customer_details?.email ?? s.customer_email ?? null,
+  created: new Date(s.created * 1000).toISOString(),
+  url: s.url ?? null,
+});
+
 /** Stripe payment provider implementation */
 export const stripePaymentProvider: PaymentProvider = {
   type: "stripe" as PaymentProviderType,
 
   checkoutCompletedEventType: "checkout.session.completed",
-
-  async createCheckoutSession(
-    event: Event,
-    intent: RegistrationIntent,
-    baseUrl: string,
-  ) {
-    const session = await createCheckoutSessionWithIntent(event, intent, baseUrl);
-    return toCheckoutResult(session?.id, session?.url, "Stripe");
-  },
-
-  async createMultiCheckoutSession(
-    intent: MultiRegistrationIntent,
-    baseUrl: string,
-  ) {
-    const session = await createMultiCheckoutSession(intent, baseUrl);
-    return toCheckoutResult(session?.id, session?.url, "Stripe");
-  },
-
-  async retrieveSession(
-    sessionId: string,
-  ): Promise<ValidatedPaymentSession | null> {
-    const session = await retrieveCheckoutSession(sessionId);
-    if (!session) return null;
-
-    const { id, payment_status, payment_intent, metadata } = session;
-
-    if (!hasRequiredSessionMetadata(metadata)) {
-      return null;
-    }
-
-    return {
-      id,
-      paymentStatus: payment_status as ValidatedPaymentSession["paymentStatus"],
-      paymentReference:
-        typeof payment_intent === "string" ? payment_intent : null,
-      metadata: extractSessionMetadata(metadata),
-    };
-  },
 
   async verifyWebhookSignature(
     payload: string,
@@ -99,5 +78,21 @@ export const stripePaymentProvider: PaymentProvider = {
     existingEndpointId?: string | null,
   ): Promise<WebhookSetupResult> {
     return setupWebhookEndpoint(secretKey, webhookUrl, existingEndpointId);
+  },
+
+  createCheckoutSession(
+    params: CreateCheckoutParams,
+  ): Promise<CheckoutSessionResult> {
+    return createCheckoutSession(params);
+  },
+
+  async retrieveSession(sessionId: string): Promise<PaymentSession | null> {
+    const session = await retrieveCheckoutSession(sessionId);
+    return session ? toPaymentSession(session) : null;
+  },
+
+  async listSessions(params: ListSessionsParams): Promise<PaymentSessionListResult> {
+    const result = await listCheckoutSessions(params);
+    return toSessionListResult(result, result?.sessions, toPaymentSession);
   },
 };

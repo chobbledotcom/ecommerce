@@ -15,7 +15,8 @@ interface AdminNavProps {
 export const AdminNav = ({ session }: AdminNavProps = {}): JSX.Element => (
   <nav>
     <ul>
-      <li><a href="/admin/">Events</a></li>
+      <li><a href="/admin/">Products</a></li>
+      <li><a href="/admin/orders">Orders</a></li>
       {session?.adminLevel === "owner" && <li><a href="/admin/users">Users</a></li>}
       {session?.adminLevel === "owner" && <li><a href="/admin/settings">Settings</a></li>}
       {session?.adminLevel === "owner" && <li><a href="/admin/log">Log</a></li>}

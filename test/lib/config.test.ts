@@ -15,6 +15,7 @@ import { getEnv } from "#lib/env.ts";
 import { getActivePaymentProvider } from "#lib/payments.ts";
 import {
   completeSetup,
+  CONFIG_KEYS,
   setPaymentProvider,
   setSetting,
   updateSquareAccessToken,
@@ -56,7 +57,7 @@ describe("config", () => {
     });
 
     test("returns null for unknown provider", async () => {
-      await setSetting("payment_provider", "unknown");
+      await setSetting(CONFIG_KEYS.PAYMENT_PROVIDER, "unknown");
       expect(await getPaymentProvider()).toBeNull();
     });
   });
@@ -121,7 +122,7 @@ describe("config", () => {
     });
 
     test("returns set value from database", async () => {
-      await setSetting("currency_code", "USD");
+      await setSetting(CONFIG_KEYS.CURRENCY_CODE, "USD");
       expect(await getCurrencyCode()).toBe("USD");
     });
   });
@@ -185,7 +186,7 @@ describe("config", () => {
   describe("isPaymentsEnabled - non-stripe provider", () => {
     test("returns false when provider is set to unknown value", async () => {
       // Set provider to a non-stripe value that getPaymentProvider will return null for
-      await setSetting("payment_provider", "paypal");
+      await setSetting(CONFIG_KEYS.PAYMENT_PROVIDER, "paypal");
       await updateStripeKey("sk_test_123");
       // getPaymentProvider returns null for unknown providers, so isPaymentsEnabled returns false
       expect(await isPaymentsEnabled()).toBe(false);
@@ -246,7 +247,7 @@ describe("payments", () => {
 
   test("getActivePaymentProvider returns null for unknown provider type", async () => {
     // Set a non-stripe provider type directly
-    await setSetting("payment_provider", "unknown_provider");
+    await setSetting(CONFIG_KEYS.PAYMENT_PROVIDER, "unknown_provider");
     const provider = await getActivePaymentProvider();
     expect(provider).toBeNull();
   });

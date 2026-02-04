@@ -1,12 +1,15 @@
 /**
- * Configuration module for ticket reservation system
+ * Configuration module for ecommerce backend
  * Reads configuration from database (set during setup phase)
  * Payment provider and keys are configured via admin settings (stored encrypted in DB)
  */
 
+import { compact, map, pipe } from "#fp";
 import {
+  CONFIG_KEYS,
   getCurrencyCodeFromDb,
   getPaymentProviderFromDb,
+  getSetting,
   getSquareAccessTokenFromDb,
   getSquareLocationIdFromDb,
   getSquareWebhookSignatureKeyFromDb,
@@ -105,6 +108,20 @@ export const getCurrencyCode = (): Promise<string> => {
  */
 export const getAllowedDomain = (): string => {
   return getEnv("ALLOWED_DOMAIN") as string;
+};
+
+/**
+ * Get allowed origins for CORS from database settings.
+ * Returns comma-separated origins, split and trimmed.
+ * Returns empty array if not configured.
+ */
+export const getAllowedOrigins = async (): Promise<string[]> => {
+  const value = await getSetting(CONFIG_KEYS.ALLOWED_ORIGINS);
+  if (!value) return [];
+  return pipe(
+    map((s: string) => s.trim()),
+    compact,
+  )(value.split(","));
 };
 
 /**

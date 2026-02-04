@@ -3,7 +3,6 @@
  */
 
 import { settingsApi } from "#lib/db/settings.ts";
-import { validateForm } from "#lib/forms.tsx";
 import { ErrorCode, logDebug, logError } from "#lib/logger.ts";
 import { createRouter, defineRoutes } from "#routes/router.ts";
 import {
@@ -15,7 +14,7 @@ import {
   redirect,
   validateCsrfToken,
 } from "#routes/utils.ts";
-import { setupFields } from "#templates/fields.ts";
+import { parseSetupForm } from "#templates/fields.ts";
 import { setupCompletePage, setupPage } from "#templates/setup.tsx";
 
 /** Cookie for CSRF token with standard security options */
@@ -31,64 +30,20 @@ const setupResponse =
       status,
     );
 
-/**
- * Validate setup form data (uses form framework + custom validation)
- */
-type SetupValidation =
-  | {
-      valid: true;
-      username: string;
-      password: string;
-      currency: string;
-    }
-  | { valid: false; error: string };
-
-const validateSetupForm = (form: URLSearchParams): SetupValidation => {
+/** Validate setup form — delegates to typed parser, adds agreement check */
+const validateSetupForm = (form: URLSearchParams) => {
   logDebug("Setup", "Validating form data...");
-  logDebug("Setup", `Form keys: ${Array.from(form.keys()).join(", ")}`);
 
-  const validation = validateForm(form, setupFields);
-  if (!validation.valid) {
-    logDebug("Setup", `Form framework validation failed: ${validation.error}`);
-    return validation;
-  }
-
-  const { values } = validation;
-  const username = values.admin_username as string;
-  const password = values.admin_password as string;
-  const passwordConfirm = values.admin_password_confirm as string;
-  const currency = ((values.currency_code as string) || "GBP").toUpperCase();
-
-  // Check Data Controller Agreement acceptance
-  const acceptAgreement = form.get("accept_agreement");
-  if (acceptAgreement !== "yes") {
+  // Check Data Controller Agreement first (outside the form framework)
+  if (form.get("accept_agreement") !== "yes") {
     logDebug("Setup", "Agreement not accepted");
-    return {
-      valid: false,
-      error: "You must accept the Data Controller Agreement to continue",
-    };
+    return { valid: false as const, error: "You must accept the Data Controller Agreement to continue" };
   }
 
-  if (password.length < 8) {
-    logDebug("Setup", `Password too short: ${password.length}`);
-    return { valid: false, error: "Password must be at least 8 characters" };
-  }
-  if (password !== passwordConfirm) {
-    logDebug("Setup", "Passwords do not match");
-    return { valid: false, error: "Passwords do not match" };
-  }
-  if (!/^[A-Z]{3}$/.test(currency)) {
-    logDebug("Setup", `Invalid currency code: ${currency}`);
-    return { valid: false, error: "Currency code must be 3 uppercase letters" };
-  }
-
-  logDebug("Setup", "Validation passed");
-  return {
-    valid: true,
-    username,
-    password,
-    currency,
-  };
+  const result = parseSetupForm(form);
+  if (!result.valid) logDebug("Setup", `Validation failed: ${result.error}`);
+  else logDebug("Setup", "Validation passed");
+  return result;
 };
 
 /**

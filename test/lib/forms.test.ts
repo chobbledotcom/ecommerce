@@ -6,18 +6,26 @@ import {
   renderFields,
 } from "#lib/forms.tsx";
 import {
-  eventFields,
-  getTicketFields,
-  mergeEventFields,
-  ticketFields,
+  parseChangePassword,
+  parseCurrencyForm,
+  parseInviteUserForm,
+  parseJoinForm,
+  parseLoginCredentials,
+  parseProductForm,
+  parseSetupForm,
+  parseSquareTokenForm,
+  parseSquareWebhookForm,
+  parseStripeKeyForm,
   validatePhone,
 } from "#templates/fields.ts";
 import {
-  baseEventForm,
   expectInvalid,
   expectInvalidForm,
   expectValid,
 } from "#test-utils";
+
+/** Helper: create URLSearchParams from an object */
+const params = (data: Record<string, string>) => new URLSearchParams(data);
 
 /** Helper: build a Field definition with minimal boilerplate. */
 const field = (
@@ -33,11 +41,6 @@ const rendered = (
   value?: string,
 ): string => renderField(field(overrides), value);
 
-/** Helper: build event form data with overrides. */
-const eventForm = (overrides: Record<string, string> = {}): Record<string, string> => ({
-  ...baseEventForm,
-  ...overrides,
-});
 
 describe("forms", () => {
   describe("renderField", () => {
@@ -213,76 +216,6 @@ describe("forms", () => {
     });
   });
 
-  describe("eventFields validation", () => {
-    test("validates thank_you_url rejects javascript: protocol", () => {
-      expectInvalid("URL must use https://")(
-        eventFields,
-        eventForm({ thank_you_url: "javascript:alert(1)" }),
-      );
-    });
-
-    test("validates thank_you_url rejects http: protocol", () => {
-      expectInvalid("URL must use https://")(
-        eventFields,
-        eventForm({ thank_you_url: "http://example.com/thank-you" }),
-      );
-    });
-
-    test("validates thank_you_url rejects invalid URL", () => {
-      expectInvalid("Invalid URL format")(
-        eventFields,
-        eventForm({ thank_you_url: "not-a-valid-url" }),
-      );
-    });
-
-    test("validates thank_you_url accepts relative URLs", () => {
-      expectValid(eventFields, eventForm({ thank_you_url: "/thank-you" }));
-    });
-
-    test("validates unit_price rejects negative values", () => {
-      expectInvalid("Price must be 0 or greater")(
-        eventFields,
-        eventForm({ unit_price: "-100" }),
-      );
-    });
-
-    test("validates name is required", () => {
-      const { name: _, ...formWithoutName } = baseEventForm;
-      expectInvalid("Event Name is required")(eventFields, formWithoutName);
-    });
-
-    test("validates description rejects values exceeding max length", () => {
-      const longDescription = "a".repeat(129);
-      expectInvalid(
-        "Description must be 128 characters or fewer",
-      )(eventFields, eventForm({ description: longDescription }));
-    });
-
-    test("validates description accepts values within max length", () => {
-      expectValid(
-        eventFields,
-        eventForm({ description: "a".repeat(128) }),
-      );
-    });
-
-    test("validates description accepts empty value", () => {
-      expectValid(eventFields, eventForm({ description: "" }));
-    });
-  });
-
-  describe("ticketFields validation", () => {
-    test("validates email format", () => {
-      expectInvalid("Please enter a valid email address")(
-        ticketFields,
-        { name: "John Doe", email: "not-an-email" },
-      );
-    });
-
-    test("accepts valid email", () => {
-      expectValid(ticketFields, { name: "John Doe", email: "john@example.com" });
-    });
-  });
-
   describe("renderField select type", () => {
     const colorSelect: Field = {
       name: "color",
@@ -327,6 +260,264 @@ describe("forms", () => {
     });
   });
 
+  describe("typed form parsers", () => {
+    describe("parseLoginCredentials", () => {
+      test("returns typed credentials from valid form", () => {
+        const result = parseLoginCredentials(params({ username: "admin", password: "secret123" }));
+        expect(result.valid).toBe(true);
+        if (result.valid) {
+          expect(result.username).toBe("admin");
+          expect(result.password).toBe("secret123");
+        }
+      });
+
+      test("rejects empty username", () => {
+        const result = parseLoginCredentials(params({ username: "", password: "secret123" }));
+        expect(result.valid).toBe(false);
+      });
+
+      test("rejects empty password", () => {
+        const result = parseLoginCredentials(params({ username: "admin", password: "" }));
+        expect(result.valid).toBe(false);
+      });
+    });
+
+    describe("parseSetupForm", () => {
+      const validSetup = {
+        admin_username: "admin",
+        admin_password: "password123",
+        admin_password_confirm: "password123",
+        currency_code: "USD",
+      };
+
+      test("returns typed setup data from valid form", () => {
+        const result = parseSetupForm(params(validSetup));
+        expect(result.valid).toBe(true);
+        if (result.valid) {
+          expect(result.username).toBe("admin");
+          expect(result.password).toBe("password123");
+          expect(result.currency).toBe("USD");
+        }
+      });
+
+      test("defaults currency to GBP when empty", () => {
+        const result = parseSetupForm(params({ ...validSetup, currency_code: "" }));
+        expect(result.valid).toBe(true);
+        if (result.valid) expect(result.currency).toBe("GBP");
+      });
+
+      test("uppercases currency code", () => {
+        const result = parseSetupForm(params({ ...validSetup, currency_code: "eur" }));
+        expect(result.valid).toBe(true);
+        if (result.valid) expect(result.currency).toBe("EUR");
+      });
+
+      test("rejects password shorter than minimum length", () => {
+        const result = parseSetupForm(params({
+          ...validSetup,
+          admin_password: "short",
+          admin_password_confirm: "short",
+        }));
+        expect(result.valid).toBe(false);
+        if (!result.valid) expect(result.error).toContain("at least");
+      });
+
+      test("rejects mismatched passwords", () => {
+        const result = parseSetupForm(params({
+          ...validSetup,
+          admin_password_confirm: "different123",
+        }));
+        expect(result.valid).toBe(false);
+        if (!result.valid) expect(result.error).toContain("do not match");
+      });
+
+      test("rejects invalid currency code", () => {
+        const result = parseSetupForm(params({ ...validSetup, currency_code: "ABCD" }));
+        expect(result.valid).toBe(false);
+        if (!result.valid) expect(result.error).toContain("Currency code");
+      });
+    });
+
+    describe("parseJoinForm", () => {
+      test("returns password from valid form", () => {
+        const result = parseJoinForm(params({
+          password: "newpassword1",
+          password_confirm: "newpassword1",
+        }));
+        expect(result.valid).toBe(true);
+        if (result.valid) expect(result.password).toBe("newpassword1");
+      });
+
+      test("rejects short password", () => {
+        const result = parseJoinForm(params({ password: "short", password_confirm: "short" }));
+        expect(result.valid).toBe(false);
+      });
+
+      test("rejects mismatched passwords", () => {
+        const result = parseJoinForm(params({
+          password: "password123",
+          password_confirm: "password456",
+        }));
+        expect(result.valid).toBe(false);
+        if (!result.valid) expect(result.error).toContain("do not match");
+      });
+    });
+
+    describe("parseChangePassword", () => {
+      test("returns current and new password from valid form", () => {
+        const result = parseChangePassword(params({
+          current_password: "oldpass123",
+          new_password: "newpass123",
+          new_password_confirm: "newpass123",
+        }));
+        expect(result.valid).toBe(true);
+        if (result.valid) {
+          expect(result.currentPassword).toBe("oldpass123");
+          expect(result.newPassword).toBe("newpass123");
+        }
+      });
+
+      test("rejects short new password", () => {
+        const result = parseChangePassword(params({
+          current_password: "oldpass123",
+          new_password: "short",
+          new_password_confirm: "short",
+        }));
+        expect(result.valid).toBe(false);
+        if (!result.valid) expect(result.error).toContain("New password");
+      });
+    });
+
+    describe("parseProductForm", () => {
+      test("returns typed product data from valid form", () => {
+        const result = parseProductForm(params({
+          name: "Widget",
+          sku: "WIDGET-01",
+          description: "A widget",
+          unit_price: "1500",
+          stock: "10",
+          active: "1",
+        }));
+        expect(result.valid).toBe(true);
+        if (result.valid) {
+          expect(result.name).toBe("Widget");
+          expect(result.sku).toBe("WIDGET-01");
+          expect(result.description).toBe("A widget");
+          expect(result.unitPrice).toBe(1500);
+          expect(result.stock).toBe(10);
+          expect(result.active).toBe(1);
+        }
+      });
+
+      test("defaults active to 1 when not provided", () => {
+        const result = parseProductForm(params({
+          name: "Widget",
+          sku: "WIDGET-01",
+          description: "",
+          unit_price: "1500",
+          stock: "10",
+        }));
+        expect(result.valid).toBe(true);
+        if (result.valid) expect(result.active).toBe(1);
+      });
+
+      test("rejects missing required sku", () => {
+        const result = parseProductForm(params({
+          name: "Widget",
+          sku: "",
+          unit_price: "1500",
+          stock: "10",
+        }));
+        expect(result.valid).toBe(false);
+      });
+    });
+
+    describe("parseInviteUserForm", () => {
+      test("returns typed invite data for manager role", () => {
+        const result = parseInviteUserForm(params({ username: "newuser", admin_level: "manager" }));
+        expect(result.valid).toBe(true);
+        if (result.valid) {
+          expect(result.username).toBe("newuser");
+          expect(result.adminLevel).toBe("manager");
+        }
+      });
+
+      test("accepts owner role", () => {
+        const result = parseInviteUserForm(params({ username: "newuser", admin_level: "owner" }));
+        expect(result.valid).toBe(true);
+        if (result.valid) expect(result.adminLevel).toBe("owner");
+      });
+
+      test("rejects invalid role", () => {
+        const result = parseInviteUserForm(params({ username: "newuser", admin_level: "superadmin" }));
+        expect(result.valid).toBe(false);
+        if (!result.valid) expect(result.error).toBe("Invalid role");
+      });
+    });
+
+    describe("parseStripeKeyForm", () => {
+      test("returns stripe key from valid form", () => {
+        const result = parseStripeKeyForm(params({ stripe_secret_key: "sk_test_123" }));
+        expect(result.valid).toBe(true);
+        if (result.valid) expect(result.stripeSecretKey).toBe("sk_test_123");
+      });
+
+      test("rejects empty key", () => {
+        const result = parseStripeKeyForm(params({ stripe_secret_key: "" }));
+        expect(result.valid).toBe(false);
+      });
+    });
+
+    describe("parseSquareTokenForm", () => {
+      test("returns access token and location ID from valid form", () => {
+        const result = parseSquareTokenForm(params({
+          square_access_token: "EAAAl_test",
+          square_location_id: "L_test",
+        }));
+        expect(result.valid).toBe(true);
+        if (result.valid) {
+          expect(result.accessToken).toBe("EAAAl_test");
+          expect(result.locationId).toBe("L_test");
+        }
+      });
+
+      test("rejects missing location ID", () => {
+        const result = parseSquareTokenForm(params({
+          square_access_token: "EAAAl_test",
+          square_location_id: "",
+        }));
+        expect(result.valid).toBe(false);
+      });
+    });
+
+    describe("parseSquareWebhookForm", () => {
+      test("returns signature key from valid form", () => {
+        const result = parseSquareWebhookForm(params({ square_webhook_signature_key: "sig_key" }));
+        expect(result.valid).toBe(true);
+        if (result.valid) expect(result.signatureKey).toBe("sig_key");
+      });
+    });
+
+    describe("parseCurrencyForm", () => {
+      test("returns uppercased currency code from valid form", () => {
+        const result = parseCurrencyForm(params({ currency_code: "eur" }));
+        expect(result.valid).toBe(true);
+        if (result.valid) expect(result.currencyCode).toBe("EUR");
+      });
+
+      test("rejects invalid currency code", () => {
+        const result = parseCurrencyForm(params({ currency_code: "1234" }));
+        expect(result.valid).toBe(false);
+        if (!result.valid) expect(result.error).toContain("Currency code");
+      });
+
+      test("rejects empty currency code", () => {
+        const result = parseCurrencyForm(params({ currency_code: "" }));
+        expect(result.valid).toBe(false);
+      });
+    });
+  });
+
   describe("validatePhone", () => {
     test("accepts valid phone with country code", () => {
       expect(validatePhone("+1 234 567 8900")).toBeNull();
@@ -357,138 +548,4 @@ describe("forms", () => {
     });
   });
 
-  describe("getTicketFields", () => {
-    test("returns name and email fields for email setting", () => {
-      const fields = getTicketFields("email");
-      expect(fields.length).toBe(2);
-      expect(fields[0]!.name).toBe("name");
-      expect(fields[1]!.name).toBe("email");
-    });
-
-    test("returns name and phone fields for phone setting", () => {
-      const fields = getTicketFields("phone");
-      expect(fields.length).toBe(2);
-      expect(fields[0]!.name).toBe("name");
-      expect(fields[1]!.name).toBe("phone");
-    });
-
-    test("returns name, email, and phone fields for both setting", () => {
-      const fields = getTicketFields("both");
-      expect(fields.length).toBe(3);
-      expect(fields[0]!.name).toBe("name");
-      expect(fields[1]!.name).toBe("email");
-      expect(fields[2]!.name).toBe("phone");
-    });
-
-    test("phone field has validation", () => {
-      const phoneField = getTicketFields("phone")[1]!;
-      expect(phoneField.validate).toBeDefined();
-      expect(phoneField.required).toBe(true);
-    });
-
-    test("email field has validation", () => {
-      const emailField = getTicketFields("email")[1]!;
-      expect(emailField.validate).toBeDefined();
-      expect(emailField.required).toBe(true);
-    });
-  });
-
-  describe("mergeEventFields", () => {
-    test("returns email for empty array", () => {
-      expect(mergeEventFields([])).toBe("email");
-    });
-
-    test("returns email when all events use email", () => {
-      expect(mergeEventFields(["email", "email", "email"])).toBe("email");
-    });
-
-    test("returns phone when all events use phone", () => {
-      expect(mergeEventFields(["phone", "phone"])).toBe("phone");
-    });
-
-    test("returns both when all events use both", () => {
-      expect(mergeEventFields(["both", "both"])).toBe("both");
-    });
-
-    test("returns both when events differ (email + phone)", () => {
-      expect(mergeEventFields(["email", "phone"])).toBe("both");
-    });
-
-    test("returns both when events differ (email + both)", () => {
-      expect(mergeEventFields(["email", "both"])).toBe("both");
-    });
-
-    test("returns both when events differ (phone + both)", () => {
-      expect(mergeEventFields(["phone", "both"])).toBe("both");
-    });
-
-    test("returns setting for single event", () => {
-      expect(mergeEventFields(["phone"])).toBe("phone");
-    });
-  });
-
-  describe("eventFields Contact Fields validation", () => {
-    test("validates fields select rejects invalid value", () => {
-      expectInvalid("Contact Fields must be email, phone, or both")(
-        eventFields,
-        eventForm({ fields: "invalid" }),
-      );
-    });
-
-    test("validates fields select accepts email", () => {
-      expectValid(eventFields, eventForm({ fields: "email" }));
-    });
-
-    test("validates fields select accepts phone", () => {
-      expectValid(eventFields, eventForm({ fields: "phone" }));
-    });
-
-    test("validates fields select accepts both", () => {
-      expectValid(eventFields, eventForm({ fields: "both" }));
-    });
-  });
-
-  describe("phone ticket fields validation", () => {
-    test("validates phone is required for phone-only events", () => {
-      expectInvalid("Your Phone Number is required")(
-        getTicketFields("phone"),
-        { name: "John Doe", phone: "" },
-      );
-    });
-
-    test("validates phone format for phone-only events", () => {
-      expectInvalid("Please enter a valid phone number")(
-        getTicketFields("phone"),
-        { name: "John Doe", phone: "abc" },
-      );
-    });
-
-    test("accepts valid phone for phone-only events", () => {
-      expectValid(getTicketFields("phone"), { name: "John Doe", phone: "+1 555 123 4567" });
-    });
-
-    test("validates both email and phone for both setting", () => {
-      expectValid(getTicketFields("both"), {
-        name: "John Doe",
-        email: "john@example.com",
-        phone: "+1 555 123 4567",
-      });
-    });
-
-    test("rejects missing phone for both setting", () => {
-      expectInvalidForm(getTicketFields("both"), {
-        name: "John Doe",
-        email: "john@example.com",
-        phone: "",
-      });
-    });
-
-    test("rejects missing email for both setting", () => {
-      expectInvalidForm(getTicketFields("both"), {
-        name: "John Doe",
-        email: "",
-        phone: "+1 555 123 4567",
-      });
-    });
-  });
 });

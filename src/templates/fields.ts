@@ -2,38 +2,9 @@
  * Form field definitions for all forms
  */
 
+import { createFormParser } from "#lib/forms.tsx";
 import type { Field } from "#lib/forms.tsx";
-import type { EventFields } from "#lib/types.ts";
-import { normalizeSlug, validateSlug } from "#lib/slug.ts";
-
-/**
- * Validate URL is safe (https or relative path, no javascript: etc.)
- */
-const validateSafeUrl = (value: string): string | null => {
-  // Allow relative URLs starting with /
-  if (value.startsWith("/")) return null;
-
-  try {
-    const url = new URL(value);
-    if (url.protocol !== "https:") {
-      return "URL must use https://";
-    }
-    return null;
-  } catch {
-    return "Invalid URL format";
-  }
-};
-
-/**
- * Validate price is non-negative
- */
-const validateNonNegativePrice = (value: string): string | null => {
-  const num = Number.parseInt(value, 10);
-  if (Number.isNaN(num) || num < 0) {
-    return "Price must be 0 or greater";
-  }
-  return null;
-};
+import type { AdminLevel } from "#lib/types.ts";
 
 /**
  * Validate email format
@@ -76,188 +47,6 @@ export const loginFields: Field[] = [
   { name: "username", label: "Username", type: "text", required: true },
   { name: "password", label: "Password", type: "password", required: true },
 ];
-
-/** Valid event fields values */
-const VALID_EVENT_FIELDS: EventFields[] = ["email", "phone", "both"];
-
-/** Validate event fields setting */
-const validateEventFields = (value: string): string | null => {
-  if (!VALID_EVENT_FIELDS.includes(value as EventFields)) {
-    return "Contact Fields must be email, phone, or both";
-  }
-  return null;
-};
-
-/** Max length for event description */
-const MAX_DESCRIPTION_LENGTH = 128;
-
-/** Validate description length */
-const validateDescription = (value: string): string | null =>
-  value.length > MAX_DESCRIPTION_LENGTH
-    ? `Description must be ${MAX_DESCRIPTION_LENGTH} characters or fewer`
-    : null;
-
-/**
- * Validate closes_at is a valid date if provided.
- * Normalizes datetime-local format to UTC ISO before parsing.
- */
-const validateClosesAt = (value: string): string | null => {
-  const normalized = value.length === 16 ? `${value}:00.000Z` : value;
-  const date = new Date(normalized);
-  if (Number.isNaN(date.getTime())) {
-    return "Please enter a valid date and time";
-  }
-  return null;
-};
-
-/**
- * Event form field definitions (shared between create and edit)
- */
-export const eventFields: Field[] = [
-  {
-    name: "name",
-    label: "Event Name",
-    type: "text",
-    required: true,
-    placeholder: "Village Quiz Night",
-    hint: "Displayed to attendees on the ticket page",
-  },
-  {
-    name: "description",
-    label: "Description (optional)",
-    type: "text",
-    placeholder: "A short description of the event",
-    hint: "Shown on the ticket page. HTML is allowed. Max 128 characters.",
-    validate: validateDescription,
-  },
-  {
-    name: "max_attendees",
-    label: "Max Attendees",
-    type: "number",
-    required: true,
-    min: 1,
-  },
-  {
-    name: "max_quantity",
-    label: "Max Tickets Per Purchase",
-    type: "number",
-    required: true,
-    min: 1,
-    hint: "Maximum tickets a customer can buy in one transaction",
-  },
-  {
-    name: "fields",
-    label: "Contact Fields",
-    type: "select",
-    hint: "Which contact details to collect from attendees",
-    options: [
-      { value: "email", label: "Email" },
-      { value: "phone", label: "Phone Number" },
-      { value: "both", label: "Email & Phone Number" },
-    ],
-    validate: validateEventFields,
-  },
-  {
-    name: "unit_price",
-    label: "Ticket Price (in pence/cents, leave empty for free)",
-    type: "number",
-    min: 0,
-    placeholder: "e.g. 1000 for 10.00",
-    validate: validateNonNegativePrice,
-  },
-  {
-    name: "closes_at",
-    label: "Registration Closes At (optional)",
-    type: "datetime-local",
-    hint: "Leave blank for no deadline. Times are in UTC.",
-    validate: validateClosesAt,
-  },
-  {
-    name: "thank_you_url",
-    label: "Thank You URL (optional)",
-    type: "url",
-    placeholder: "https://example.com/thank-you",
-    hint: "Leave blank to show a simple success message",
-    validate: validateSafeUrl,
-  },
-  {
-    name: "webhook_url",
-    label: "Webhook URL (optional)",
-    type: "url",
-    placeholder: "https://example.com/webhook",
-    hint: "Receives POST with attendee name, email, and phone on registration",
-    validate: validateSafeUrl,
-  },
-];
-
-/** Slug field for event edit page only */
-export const slugField: Field = {
-  name: "slug",
-  label: "Slug",
-  type: "text",
-  required: true,
-  hint: "URL-friendly identifier (lowercase letters, numbers, and hyphens)",
-  validate: (value: string) => validateSlug(normalizeSlug(value)),
-};
-
-/** Name field shown on all ticket forms */
-const nameField: Field = {
-  name: "name",
-  label: "Your Name",
-  type: "text",
-  required: true,
-};
-
-/** Email field for ticket forms */
-const emailField: Field = {
-  name: "email",
-  label: "Your Email",
-  type: "email",
-  required: true,
-  validate: validateEmail,
-};
-
-/** Phone field for ticket forms */
-const phoneField: Field = {
-  name: "phone",
-  label: "Your Phone Number",
-  type: "text",
-  required: true,
-  validate: validatePhone,
-};
-
-/**
- * Ticket reservation form field definitions (legacy - email only)
- */
-export const ticketFields: Field[] = [nameField, emailField];
-
-/**
- * Get ticket form fields based on event fields setting.
- * Always includes name. Adds email and/or phone based on the setting.
- */
-export const getTicketFields = (fields: EventFields): Field[] => {
-  switch (fields) {
-    case "email":
-      return [nameField, emailField];
-    case "phone":
-      return [nameField, phoneField];
-    case "both":
-      return [nameField, emailField, phoneField];
-  }
-};
-
-/**
- * Determine which contact fields to collect for multiple events.
- * If all events share the same single-field setting, use that.
- * If any differ, collect both.
- */
-export const mergeEventFields = (fieldSettings: EventFields[]): EventFields => {
-  if (fieldSettings.length === 0) return "email";
-  const first = fieldSettings[0] as EventFields;
-  const allSame = fieldSettings.every((f) => f === first);
-  if (allSame) return first;
-  return "both";
-};
 
 /**
  * Setup form field definitions
@@ -393,6 +182,80 @@ export const inviteUserFields: Field[] = [
 ];
 
 /**
+ * Product form field definitions
+ */
+export const productFields: Field[] = [
+  {
+    name: "name",
+    label: "Product Name",
+    type: "text",
+    required: true,
+  },
+  {
+    name: "sku",
+    label: "SKU",
+    type: "text",
+    required: true,
+    hint: "Unique product identifier (e.g. WIDGET-01)",
+  },
+  {
+    name: "description",
+    label: "Description",
+    type: "textarea",
+  },
+  {
+    name: "unit_price",
+    label: "Price (in smallest unit, e.g. pence/cents)",
+    type: "number",
+    required: true,
+    min: 0,
+    hint: "Enter 1500 for 15.00",
+  },
+  {
+    name: "stock",
+    label: "Stock",
+    type: "number",
+    required: true,
+    hint: "-1 for unlimited, 0 for out of stock",
+  },
+  {
+    name: "active",
+    label: "Active",
+    type: "select",
+    options: [
+      { value: "1", label: "Active" },
+      { value: "0", label: "Inactive" },
+    ],
+  },
+];
+
+/**
+ * Allowed origins form field definitions
+ */
+export const allowedOriginsFields: Field[] = [
+  {
+    name: "allowed_origins",
+    label: "Allowed Origins",
+    type: "textarea",
+    hint: "Comma-separated origins (e.g. https://myshop.com, https://staging.myshop.com)",
+  },
+];
+
+/**
+ * Currency form field definitions
+ */
+export const currencyFields: Field[] = [
+  {
+    name: "currency_code",
+    label: "Currency Code",
+    type: "text",
+    required: true,
+    pattern: "[A-Z]{3}",
+    hint: "3-letter ISO code (e.g., GBP, USD, EUR)",
+  },
+];
+
+/**
  * Join (set password) form field definitions
  */
 export const joinFields: Field[] = [
@@ -410,3 +273,142 @@ export const joinFields: Field[] = [
     required: true,
   },
 ];
+
+// ---------------------------------------------------------------------------
+// Typed form parsers — parse at the boundary, return strong types
+// ---------------------------------------------------------------------------
+
+/**
+ * Validate a password + confirmation pair.
+ * Returns error string or null on success.
+ */
+const MIN_PASSWORD_LENGTH = 8;
+
+const checkPasswords = (
+  password: string,
+  confirm: string,
+  label = "Password",
+  pluralLabel = "Passwords",
+): string | null => {
+  if (password.length < MIN_PASSWORD_LENGTH) return `${label} must be at least ${MIN_PASSWORD_LENGTH} characters`;
+  if (password !== confirm) return `${pluralLabel} do not match`;
+  return null;
+};
+
+/** Validate a 3-letter ISO currency code, returns uppercased code or error */
+const parseCurrency = (raw: string, fallback?: string): string | { code: string } => {
+  const code = (raw || fallback || "").toUpperCase();
+  if (!/^[A-Z]{3}$/.test(code)) return "Currency code must be 3 uppercase letters";
+  return { code };
+};
+
+/** Parse login form → { username, password } */
+export const parseLoginCredentials = createFormParser(
+  loginFields,
+  (v) => ({
+    username: v.username as string,
+    password: v.password as string,
+  }),
+);
+
+/** Parse setup form → { username, password, currency } */
+export const parseSetupForm = createFormParser(
+  setupFields,
+  (v) => {
+    const pw = v.admin_password as string;
+    const confirm = v.admin_password_confirm as string;
+    const pwError = checkPasswords(pw, confirm);
+    if (pwError) return pwError;
+    const curr = parseCurrency(v.currency_code as string, "GBP");
+    if (typeof curr === "string") return curr;
+    return { username: v.admin_username as string, password: pw, currency: curr.code };
+  },
+);
+
+/** Parse join (invite acceptance) form → { password } */
+export const parseJoinForm = createFormParser(
+  joinFields,
+  (v) => {
+    const pw = v.password as string;
+    const confirm = v.password_confirm as string;
+    const error = checkPasswords(pw, confirm);
+    if (error) return error;
+    return { password: pw };
+  },
+);
+
+/** Parse change-password form → { currentPassword, newPassword } */
+export const parseChangePassword = createFormParser(
+  changePasswordFields,
+  (v) => {
+    const newPw = v.new_password as string;
+    const confirm = v.new_password_confirm as string;
+    const error = checkPasswords(newPw, confirm, "New password", "New passwords");
+    if (error) return error;
+    return { currentPassword: v.current_password as string, newPassword: newPw };
+  },
+);
+
+/** Typed product input — what the product form produces */
+export type ProductFormData = {
+  name: string;
+  sku: string;
+  description: string;
+  unitPrice: number;
+  stock: number;
+  active: number;
+};
+
+/** Parse product form → ProductFormData */
+export const parseProductForm = createFormParser(
+  productFields,
+  (v): ProductFormData => ({
+    name: v.name as string,
+    sku: v.sku as string,
+    description: (v.description as string) ?? "",
+    unitPrice: v.unit_price as number,
+    stock: v.stock as number,
+    active: Number(v.active ?? 1),
+  }),
+);
+
+/** Parse invite-user form → { username, adminLevel } with validated role */
+export const parseInviteUserForm = createFormParser(
+  inviteUserFields,
+  (v): { username: string; adminLevel: AdminLevel } | string => {
+    const level = v.admin_level as string;
+    if (level !== "owner" && level !== "manager") return "Invalid role";
+    return { username: v.username as string, adminLevel: level };
+  },
+);
+
+/** Parse Stripe key form → { stripeSecretKey } */
+export const parseStripeKeyForm = createFormParser(
+  stripeKeyFields,
+  (v) => ({ stripeSecretKey: v.stripe_secret_key as string }),
+);
+
+/** Parse Square credentials form → { accessToken, locationId } */
+export const parseSquareTokenForm = createFormParser(
+  squareAccessTokenFields,
+  (v) => ({
+    accessToken: v.square_access_token as string,
+    locationId: v.square_location_id as string,
+  }),
+);
+
+/** Parse Square webhook form → { signatureKey } */
+export const parseSquareWebhookForm = createFormParser(
+  squareWebhookFields,
+  (v) => ({ signatureKey: v.square_webhook_signature_key as string }),
+);
+
+/** Parse currency settings form → { currencyCode } */
+export const parseCurrencyForm = createFormParser(
+  currencyFields,
+  (v): { currencyCode: string } | string => {
+    const curr = parseCurrency(v.currency_code as string);
+    if (typeof curr === "string") return curr;
+    return { currencyCode: curr.code };
+  },
+);

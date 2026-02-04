@@ -1,39 +1,30 @@
 /**
- * Types for the ticket reservation system
+ * Types for the ecommerce backend
  */
 
-/** Contact fields setting for an event */
-export type EventFields = "email" | "phone" | "both";
-
-export interface Event {
+/** Product in the catalog */
+export interface Product {
   id: number;
+  sku: string;
   name: string;
   description: string;
-  slug: string;
-  slug_index: string;
+  unit_price: number; // in smallest currency unit (pence/cents)
+  stock: number; // 0 = out of stock, -1 = unlimited
+  active: number; // 0 = hidden from catalog
   created: string;
-  max_attendees: number;
-  thank_you_url: string | null;
-  unit_price: number | null;
-  max_quantity: number;
-  webhook_url: string | null;
-  active: number;
-  fields: EventFields;
-  closes_at: string | null;
 }
 
-export interface Attendee {
+/** Stock reservation status */
+export type ReservationStatus = "pending" | "confirmed" | "expired";
+
+/** Stock reservation tracking in-flight checkout sessions */
+export interface Reservation {
   id: number;
-  event_id: number;
-  name: string;
-  email: string;
-  phone: string;
-  created: string;
-  payment_id: string | null;
+  product_id: number;
   quantity: number;
-  price_paid: string | null;
-  checked_in: string;
-  ticket_token: string;
+  provider_session_id: string; // Stripe session ID or Square order ID
+  status: ReservationStatus;
+  created: string;
 }
 
 export interface Settings {
@@ -69,6 +60,13 @@ export interface User {
   invite_expiry: string | null; // encrypted ISO 8601, null after password set
 }
 
-export interface EventWithCount extends Event {
-  attendee_count: number;
+/** Payment session returned from provider listing */
+export interface PaymentSession {
+  id: string;
+  status: string;
+  amount: number | null;
+  currency: string | null;
+  customerEmail: string | null;
+  created: string;
+  url: string | null;
 }

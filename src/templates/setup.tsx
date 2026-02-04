@@ -22,10 +22,10 @@ const DataControllerAgreement = (): JSX.Element => (
       </li>
       <li>
         <strong>We are a data processor</strong> - We store your encrypted data but cannot access
-        attendee information without your admin password
+        it without your admin password
       </li>
       <li>
-        <strong>Your data is encrypted</strong> - Attendee names, emails, and payment references are
+        <strong>Your data is encrypted</strong> - Sensitive data and payment references are
         encrypted at rest. Only you can decrypt them by logging in
       </li>
       <li>

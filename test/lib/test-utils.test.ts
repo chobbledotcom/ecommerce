@@ -11,30 +11,20 @@ import {
 import { spyOn } from "#test-compat";
 import {
   awaitTestRequest,
-  createTestAttendee,
   createTestDb,
   createTestDbWithSetup,
-  createTestEvent,
-  deactivateTestEvent,
   errorResponse,
   expectStatus,
-  generateTestEventName,
   getCsrfTokenFromCookie,
   getSetupCsrfToken,
-  getTicketCsrfToken,
-  invalidateTestDbCache,
   loginAsAdmin,
   mockFormRequest,
   mockRequest,
   mockWebhookRequest,
   randomString,
   resetDb,
-  resetTestSession,
-  resetTestSlugCounter,
   setupStripe,
-  submitTicketForm,
   testRequest,
-  updateTestEvent,
   wait,
 } from "#test-utils";
 
@@ -59,13 +49,13 @@ describe("test-utils", () => {
       const { getDb } = await import("#lib/db/client.ts");
       // Insert data into the first DB
       await getDb().execute(
-        "INSERT INTO events (slug, slug_index, max_attendees, created, fields) VALUES ('old', 'old', 10, '2024-01-01', 'email')",
+        "INSERT INTO settings (key, value) VALUES ('test_key', 'test_value')",
       );
       resetDb();
       // After reset, we need to set up again to get a working db
       await createTestDb();
       // Data from previous test should be gone
-      const result = await getDb().execute("SELECT * FROM events");
+      const result = await getDb().execute("SELECT * FROM settings WHERE key = 'test_key'");
       expect(result.rows.length).toBe(0);
     });
   });
@@ -206,21 +196,6 @@ describe("test-utils", () => {
     });
   });
 
-  describe("generateTestEventName", () => {
-    test("generates incrementing names", () => {
-      resetTestSlugCounter();
-      expect(generateTestEventName()).toBe("Test Event 1");
-      expect(generateTestEventName()).toBe("Test Event 2");
-      expect(generateTestEventName()).toBe("Test Event 3");
-    });
-
-    test("resetTestSlugCounter resets counter to 0", () => {
-      generateTestEventName(); // Trigger lazy init if needed
-      resetTestSlugCounter();
-      expect(generateTestEventName()).toBe("Test Event 1");
-    });
-  });
-
   describe("awaitTestRequest", () => {
     beforeEach(async () => {
       await createTestDbWithSetup();
@@ -287,40 +262,6 @@ describe("test-utils", () => {
     });
   });
 
-  describe("getTicketCsrfToken", () => {
-    test("returns null when set-cookie header is null", () => {
-      expect(getTicketCsrfToken(null)).toBe(null);
-    });
-
-    test("returns null when set-cookie has no csrf_token cookie", () => {
-      expect(getTicketCsrfToken("other_cookie=value")).toBe(null);
-    });
-
-    test("extracts csrf_token value from set-cookie header", () => {
-      expect(getTicketCsrfToken("csrf_token=xyz789; Path=/")).toBe("xyz789");
-    });
-  });
-
-  describe("submitTicketForm", () => {
-    test("submits a ticket form with CSRF token handling", async () => {
-      await createTestDbWithSetup();
-      const event = await createTestEvent();
-      const response = await submitTicketForm(event.slug, {
-        name: "Test User",
-        email: "test@example.com",
-      });
-      expect(response.status).toBe(302);
-    });
-
-    test("throws when CSRF token cannot be obtained", async () => {
-      await createTestDbWithSetup();
-      // Non-existent slug returns 404 with no CSRF cookie
-      await expect(
-        submitTicketForm("non-existent-slug", { name: "Test", email: "t@t.com" }),
-      ).rejects.toThrow("Failed to get CSRF token");
-    });
-  });
-
   describe("setupStripe", () => {
     test("configures Stripe as payment provider", async () => {
       await createTestDbWithSetup();
@@ -365,129 +306,6 @@ describe("test-utils", () => {
     });
   });
 
-  describe("createTestEvent", () => {
-    beforeEach(async () => {
-      await createTestDbWithSetup();
-    });
-
-    test("creates an event with thankYouUrl override", async () => {
-      const event = await createTestEvent({
-        thankYouUrl: "https://custom.example.com/done",
-      });
-      expect(event.thank_you_url).toBe("https://custom.example.com/done");
-      expect(event.slug).toBeTruthy();
-    });
-
-    test("creates an event with default settings", async () => {
-      const event = await createTestEvent();
-      expect(event.id).toBeGreaterThan(0);
-      expect(event.max_attendees).toBe(100);
-      expect(event.active).toBe(1);
-    });
-  });
-
-  describe("updateTestEvent", () => {
-    beforeEach(async () => {
-      await createTestDbWithSetup();
-    });
-
-    test("updates event fields via the REST API", async () => {
-      const event = await createTestEvent();
-      const updated = await updateTestEvent(event.id, {
-        maxAttendees: 200,
-        unitPrice: 1500,
-        webhookUrl: "https://hook.example.com",
-        thankYouUrl: "https://thanks.example.com",
-      });
-      expect(updated.max_attendees).toBe(200);
-      expect(updated.unit_price).toBe(1500);
-      expect(updated.webhook_url).toBe("https://hook.example.com");
-      expect(updated.thank_you_url).toBe("https://thanks.example.com");
-    });
-
-    test("throws when event does not exist", async () => {
-      await expect(
-        updateTestEvent(99999, { maxAttendees: 50 }),
-      ).rejects.toThrow("Event not found: 99999");
-    });
-
-    test("preserves existing values when updates are partial", async () => {
-      const event = await createTestEvent({
-        thankYouUrl: "https://original.example.com",
-      });
-      const updated = await updateTestEvent(event.id, {
-        maxAttendees: 50,
-      });
-      expect(updated.max_attendees).toBe(50);
-      expect(updated.thank_you_url).toBe("https://original.example.com");
-    });
-
-    test("clears nullable fields when set to null", async () => {
-      const event = await createTestEvent({
-        unitPrice: 1000,
-        webhookUrl: "https://hook.example.com",
-      });
-      const updated = await updateTestEvent(event.id, {
-        unitPrice: null,
-        webhookUrl: null,
-      });
-      expect(updated.unit_price).toBe(null);
-      expect(updated.webhook_url).toBe(null);
-    });
-  });
-
-  describe("deactivateTestEvent", () => {
-    beforeEach(async () => {
-      await createTestDbWithSetup();
-    });
-
-    test("throws when event does not exist", async () => {
-      await expect(deactivateTestEvent(99999)).rejects.toThrow(
-        "Event not found: 99999",
-      );
-    });
-
-    test("deactivates an existing event", async () => {
-      const event = await createTestEvent();
-      expect(event.active).toBe(1);
-      await deactivateTestEvent(event.id);
-      const { getEventWithCount } = await import("#lib/db/events.ts");
-      const updated = await getEventWithCount(event.id);
-      expect(updated!.active).toBe(0);
-    });
-  });
-
-  describe("createTestAttendee", () => {
-    beforeEach(async () => {
-      await createTestDbWithSetup();
-    });
-
-    test("creates an attendee via the public ticket form", async () => {
-      const event = await createTestEvent();
-      const attendee = await createTestAttendee(
-        event.id,
-        event.slug,
-        "Jane Doe",
-        "jane@example.com",
-      );
-      expect(attendee.id).toBeGreaterThan(0);
-      expect(attendee.event_id).toBe(event.id);
-      expect(attendee.quantity).toBe(1);
-    });
-
-    test("creates an attendee with custom quantity", async () => {
-      const event = await createTestEvent({ maxAttendees: 10, maxQuantity: 5 });
-      const attendee = await createTestAttendee(
-        event.id,
-        event.slug,
-        "Bob Smith",
-        "bob@example.com",
-        3,
-      );
-      expect(attendee.quantity).toBe(3);
-    });
-  });
-
   describe("expectStatus", () => {
     test("returns the response when status matches", () => {
       const response = new Response("ok", { status: 200 });
@@ -528,131 +346,6 @@ describe("test-utils", () => {
     });
   });
 
-  describe("getTestSession fallback to loginAsAdmin", () => {
-    beforeEach(async () => {
-      await createTestDbWithSetup();
-    });
-
-    test("falls back to loginAsAdmin when cached admin session is cleared", async () => {
-      // Clear testSession and cachedAdminSession, but leave db working
-      resetTestSession();
-      invalidateTestDbCache();
-      // createTestEvent uses getTestSession internally
-      // With cachedAdminSession null, it falls through to loginAsAdmin
-      const event = await createTestEvent();
-      expect(event.id).toBeGreaterThan(0);
-    });
-  });
-
-  describe("authenticatedFormRequest and createTestEvent error paths", () => {
-    beforeEach(async () => {
-      await createTestDbWithSetup();
-    });
-
-    test("createTestEvent throws event not found when name is empty", async () => {
-      // Empty name creates event but it cannot be found after creation
-      // This covers the "Event not found after creation" error path
-      await expect(
-        createTestEvent({ name: "" }),
-      ).rejects.toThrow("Event not found after creation: ");
-    });
-
-    test("authenticatedFormRequest throws on non-302 response via update", async () => {
-      // Update with empty name triggers validation failure.
-      // The update handler returns a 200 error page (not 302) on validation failure.
-      const event = await createTestEvent();
-      await expect(
-        updateTestEvent(event.id, { name: "" }),
-      ).rejects.toThrow("Failed to update event");
-    });
-  });
-
-  describe("formatPrice coverage", () => {
-    beforeEach(async () => {
-      await createTestDbWithSetup();
-    });
-
-    test("preserves existing unitPrice when update does not specify unitPrice", async () => {
-      // Create event with a unit price
-      const event = await createTestEvent({ unitPrice: 2500 });
-      expect(event.unit_price).toBe(2500);
-      // Update without specifying unitPrice -> formatPrice(undefined, 2500)
-      // This covers the branch: existing != null ? String(existing) : ""
-      const updated = await updateTestEvent(event.id, { maxAttendees: 50 });
-      expect(updated.unit_price).toBe(2500);
-      expect(updated.max_attendees).toBe(50);
-    });
-
-    test("preserves existing closesAt when update does not specify closesAt", async () => {
-      const event = await createTestEvent({ closesAt: "2099-06-15T14:30" });
-      expect(event.closes_at).toBe("2099-06-15T14:30:00.000Z");
-      const updated = await updateTestEvent(event.id, { maxAttendees: 50 });
-      expect(updated.closes_at).toBe("2099-06-15T14:30:00.000Z");
-      expect(updated.max_attendees).toBe(50);
-    });
-  });
-
-  describe("createTestEvent with null thankYouUrl", () => {
-    beforeEach(async () => {
-      await createTestDbWithSetup();
-    });
-
-    test("creates event without thankYouUrl using ?? empty string fallback", async () => {
-      const event = await createTestEvent({ thankYouUrl: undefined });
-      expect(event.id).toBeGreaterThan(0);
-      // thankYouUrl: undefined triggers the ?? "" branch
-      expect(event.thank_you_url).toBe(null);
-    });
-  });
-
-  describe("createTestAttendee error paths", () => {
-    beforeEach(async () => {
-      await createTestDbWithSetup();
-    });
-
-    test("throws when ticket page does not provide CSRF token (deactivated event)", async () => {
-      const event = await createTestEvent();
-      await deactivateTestEvent(event.id);
-      await expect(
-        createTestAttendee(event.id, event.slug, "Test", "test@example.com"),
-      ).rejects.toThrow("Failed to get CSRF token for ticket form");
-    });
-
-    test("throws when form submission returns error status (event at capacity)", async () => {
-      const event = await createTestEvent({
-        maxAttendees: 1,
-        maxQuantity: 1,
-      });
-      // Fill the event
-      await createTestAttendee(
-        event.id,
-        event.slug,
-        "First",
-        "first@example.com",
-      );
-      // Second attendee should fail because event is full
-      await expect(
-        createTestAttendee(
-          event.id,
-          event.slug,
-          "Second",
-          "second@example.com",
-        ),
-      ).rejects.toThrow("Failed to create attendee");
-    });
-  });
-
-  describe("updateTestEvent event not found after update", () => {
-    beforeEach(async () => {
-      await createTestDbWithSetup();
-    });
-
-    test("throws when event does not exist", async () => {
-      await expect(
-        updateTestEvent(99999, { maxAttendees: 50 }),
-      ).rejects.toThrow("Event not found: 99999");
-    });
-  });
 });
 
 describe("test-compat", () => {
@@ -1036,9 +729,13 @@ describe("test-compat", () => {
 
 // Standalone test outside any describe block to exercise
 // getCurrentContext's contextStack fallback ?? {} (test-compat.ts line 38)
-test("test registered outside describe exercises empty context stack fallback", () => {
+test("test registered outside describe runs successfully without a parent context", () => {
   // When test() is called outside any describe block, contextStack is empty.
   // getCurrentContext returns contextStack[contextStack.length - 1] ?? {}
   // which triggers the ?? {} fallback since contextStack[-1] is undefined.
-  expect(1 + 1).toBe(2);
+  // Verify the test framework itself works in this scenario by asserting
+  // that core assertions function correctly outside a describe block.
+  const arr = [1, 2, 3];
+  expect(arr).toHaveLength(3);
+  expect(arr).toContain(2);
 });

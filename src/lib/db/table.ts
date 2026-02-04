@@ -400,4 +400,9 @@ export const col = {
     write: (v: T) => Promise<T> | T,
     read: (v: T) => Promise<T> | T,
   ): ColumnDef<T> => ({ write, read }),
+
+  /** ISO timestamp column defaulting to now */
+  timestamp: (): ColumnDef<string> => ({
+    default: () => new Date().toISOString(),
+  }),
 };

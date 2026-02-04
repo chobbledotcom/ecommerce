@@ -5,11 +5,13 @@
 
 import {
   clearPaymentProvider,
+  CONFIG_KEYS,
   getPaymentProviderFromDb,
   getStripeWebhookEndpointId,
   hasSquareToken,
   hasStripeKey,
   setPaymentProvider,
+  setSetting,
   setStripeWebhookConfig,
   updateSquareAccessToken,
   updateSquareLocationId,
@@ -23,7 +25,6 @@ import {
 } from "#lib/config.ts";
 import { resetDatabase } from "#lib/db/migrations/index.ts";
 import { getUserById, verifyUserPassword } from "#lib/db/users.ts";
-import { validateForm } from "#lib/forms.tsx";
 import { setupWebhookEndpoint, testStripeConnection } from "#lib/stripe.ts";
 import type { PaymentProviderType } from "#lib/payments.ts";
 import type { AdminSession } from "#lib/types.ts";
@@ -39,10 +40,11 @@ import {
 } from "#routes/utils.ts";
 import { adminSettingsPage } from "#templates/admin/settings.tsx";
 import {
-  changePasswordFields,
-  squareAccessTokenFields,
-  squareWebhookFields,
-  stripeKeyFields,
+  parseChangePassword,
+  parseCurrencyForm,
+  parseSquareTokenForm,
+  parseSquareWebhookForm,
+  parseStripeKeyForm,
 } from "#templates/fields.ts";
 
 /** Build the webhook URL from the configured domain */
@@ -99,39 +101,6 @@ const handleAdminSettingsGet = (request: Request): Promise<Response> =>
   });
 
 /**
- * Validate change password form data
- */
-type ChangePasswordValidation =
-  | { valid: true; currentPassword: string; newPassword: string }
-  | { valid: false; error: string };
-
-const validateChangePasswordForm = (
-  form: URLSearchParams,
-): ChangePasswordValidation => {
-  const validation = validateForm(form, changePasswordFields);
-  if (!validation.valid) {
-    return validation;
-  }
-
-  const { values } = validation;
-  const currentPassword = values.current_password as string;
-  const newPassword = values.new_password as string;
-  const newPasswordConfirm = values.new_password_confirm as string;
-
-  if (newPassword.length < 8) {
-    return {
-      valid: false,
-      error: "New password must be at least 8 characters",
-    };
-  }
-  if (newPassword !== newPasswordConfirm) {
-    return { valid: false, error: "New passwords do not match" };
-  }
-
-  return { valid: true, currentPassword, newPassword };
-};
-
-/**
  * Handle POST /admin/settings - change password (owner only)
  */
 const handleAdminSettingsPost = (request: Request): Promise<Response> =>
@@ -139,7 +108,7 @@ const handleAdminSettingsPost = (request: Request): Promise<Response> =>
     const settingsPageWithError = async (error: string, status: number) =>
       htmlResponse(await renderSettingsPage(session, error), status);
 
-    const validation = validateChangePasswordForm(form);
+    const validation = parseChangePassword(form);
     if (!validation.valid) {
       return settingsPageWithError(validation.error, 400);
     }
@@ -203,12 +172,12 @@ const handleAdminStripePost = (request: Request): Promise<Response> =>
     const settingsPageWithError = async (error: string, status: number) =>
       htmlResponse(await renderSettingsPage(session, error), status);
 
-    const validation = validateForm(form, stripeKeyFields);
+    const validation = parseStripeKeyForm(form);
     if (!validation.valid) {
       return settingsPageWithError(validation.error, 400);
     }
 
-    const stripeSecretKey = validation.values.stripe_secret_key as string;
+    const { stripeSecretKey } = validation;
 
     // Set up webhook endpoint automatically
     const webhookUrl = getWebhookUrl();
@@ -248,16 +217,13 @@ const handleAdminSquarePost = (request: Request): Promise<Response> =>
     const settingsPageWithError = async (error: string, status: number) =>
       htmlResponse(await renderSettingsPage(session, error), status);
 
-    const validation = validateForm(form, squareAccessTokenFields);
+    const validation = parseSquareTokenForm(form);
     if (!validation.valid) {
       return settingsPageWithError(validation.error, 400);
     }
 
-    const accessToken = validation.values.square_access_token as string;
-    const locationId = validation.values.square_location_id as string;
-
-    await updateSquareAccessToken(accessToken);
-    await updateSquareLocationId(locationId);
+    await updateSquareAccessToken(validation.accessToken);
+    await updateSquareLocationId(validation.locationId);
 
     // Auto-set payment provider to square when credentials are configured
     await setPaymentProvider("square");
@@ -273,14 +239,12 @@ const handleAdminSquareWebhookPost = (request: Request): Promise<Response> =>
     const settingsPageWithError = async (error: string, status: number) =>
       htmlResponse(await renderSettingsPage(session, error), status);
 
-    const validation = validateForm(form, squareWebhookFields);
+    const validation = parseSquareWebhookForm(form);
     if (!validation.valid) {
       return settingsPageWithError(validation.error, 400);
     }
 
-    const signatureKey = validation.values.square_webhook_signature_key as string;
-
-    await updateSquareWebhookSignatureKey(signatureKey);
+    await updateSquareWebhookSignatureKey(validation.signatureKey);
 
     return redirectWithSuccess(
       "/admin/settings",
@@ -327,6 +291,29 @@ const handleResetDatabasePost = (request: Request): Promise<Response> =>
     return redirect("/setup/", clearSessionCookie);
   });
 
+/**
+ * Handle POST /admin/settings/allowed-origins - owner only
+ */
+const handleAllowedOriginsPost = (request: Request): Promise<Response> =>
+  withOwnerAuthForm(request, async (_session, form) => {
+    const origins = (form.get("allowed_origins") ?? "").trim();
+    await setSetting(CONFIG_KEYS.ALLOWED_ORIGINS, origins);
+    return redirectWithSuccess("/admin/settings", "Allowed origins updated");
+  });
+
+/**
+ * Handle POST /admin/settings/currency - owner only
+ */
+const handleCurrencyPost = (request: Request): Promise<Response> =>
+  withOwnerAuthForm(request, async (session, form) => {
+    const validation = parseCurrencyForm(form);
+    if (!validation.valid) {
+      return htmlResponse(await renderSettingsPage(session, validation.error), 400);
+    }
+    await setSetting(CONFIG_KEYS.CURRENCY_CODE, validation.currencyCode);
+    return redirectWithSuccess("/admin/settings", `Currency set to ${validation.currencyCode}`);
+  });
+
 /** Settings routes */
 export const settingsRoutes = defineRoutes({
   "GET /admin/settings": (request) => handleAdminSettingsGet(request),
@@ -338,6 +325,9 @@ export const settingsRoutes = defineRoutes({
   "POST /admin/settings/square-webhook": (request) =>
     handleAdminSquareWebhookPost(request),
   "POST /admin/settings/stripe/test": (request) => handleStripeTestPost(request),
+  "POST /admin/settings/allowed-origins": (request) =>
+    handleAllowedOriginsPost(request),
+  "POST /admin/settings/currency": (request) => handleCurrencyPost(request),
   "POST /admin/settings/reset-database": (request) =>
     handleResetDatabasePost(request),
 });

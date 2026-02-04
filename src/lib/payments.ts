@@ -8,7 +8,7 @@
 
 import { getPaymentProvider as getConfiguredProvider } from "#lib/config.ts";
 import { logDebug } from "#lib/logger.ts";
-import type { Event } from "#lib/types.ts";
+import type { PaymentSession } from "#lib/types.ts";
 
 /** Stubbable API for internal calls (testable via spyOn, like stripeApi/squareApi) */
 export const paymentsApi = {
@@ -18,30 +18,20 @@ export const paymentsApi = {
 /** Supported payment provider identifiers */
 export type PaymentProviderType = "stripe" | "square";
 
-/** Registration intent for a single event checkout */
-export type RegistrationIntent = {
-  eventId: number;
+/** Line item for checkout session creation */
+export type CheckoutLineItem = {
   name: string;
-  email: string;
-  phone: string;
+  unitPrice: number; // in smallest currency unit (pence/cents)
   quantity: number;
 };
 
-/** Single item within a multi-event checkout */
-export type MultiRegistrationItem = {
-  eventId: number;
-  quantity: number;
-  unitPrice: number;
-  slug: string;
-  name: string;
-};
-
-/** Registration intent for multi-event checkout */
-export type MultiRegistrationIntent = {
-  name: string;
-  email: string;
-  phone: string;
-  items: MultiRegistrationItem[];
+/** Parameters for creating a checkout session */
+export type CreateCheckoutParams = {
+  lineItems: CheckoutLineItem[];
+  metadata: Record<string, string>;
+  successUrl: string;
+  cancelUrl: string;
+  currency: string;
 };
 
 /** Result of creating a checkout session */
@@ -49,25 +39,6 @@ export type CheckoutSessionResult = {
   sessionId: string;
   checkoutUrl: string;
 } | null;
-
-/** Metadata attached to a validated payment session */
-export type SessionMetadata = {
-  event_id?: string;
-  name: string;
-  email: string;
-  phone?: string;
-  quantity?: string;
-  multi?: string;
-  items?: string;
-};
-
-/** A validated payment session returned after checkout completion */
-export type ValidatedPaymentSession = {
-  id: string;
-  paymentStatus: "paid" | "unpaid" | "no_payment_required";
-  paymentReference: string | null;
-  metadata: SessionMetadata;
-};
 
 /** Result of webhook signature verification */
 export type WebhookVerifyResult =
@@ -81,6 +52,12 @@ export type WebhookEvent = {
   data: {
     object: Record<string, unknown>;
   };
+};
+
+/** Parameters for listing payment sessions */
+export type ListSessionsParams = {
+  limit: number;
+  startingAfter?: string;
 };
 
 /** Result of webhook endpoint setup */
@@ -97,31 +74,6 @@ export type WebhookSetupResult =
 export interface PaymentProvider {
   /** Provider identifier */
   readonly type: PaymentProviderType;
-
-  /**
-   * Create a checkout session for a single-event purchase.
-   * Returns a session ID and hosted checkout URL, or null on failure.
-   */
-  createCheckoutSession(
-    event: Event,
-    intent: RegistrationIntent,
-    baseUrl: string,
-  ): Promise<CheckoutSessionResult>;
-
-  /**
-   * Create a checkout session for a multi-event purchase.
-   * Returns a session ID and hosted checkout URL, or null on failure.
-   */
-  createMultiCheckoutSession(
-    intent: MultiRegistrationIntent,
-    baseUrl: string,
-  ): Promise<CheckoutSessionResult>;
-
-  /**
-   * Retrieve and validate a completed checkout session by ID.
-   * Returns the validated session or null if not found / invalid.
-   */
-  retrieveSession(sessionId: string): Promise<ValidatedPaymentSession | null>;
 
   /**
    * Verify a webhook request's signature and parse the event payload.
@@ -150,7 +102,33 @@ export interface PaymentProvider {
 
   /** The webhook event type name that indicates a completed checkout */
   readonly checkoutCompletedEventType: string;
+
+  /**
+   * Create a checkout session with line items.
+   * Returns the provider's session ID and a redirect URL for the customer.
+   */
+  createCheckoutSession(
+    params: CreateCheckoutParams,
+  ): Promise<CheckoutSessionResult>;
+
+  /**
+   * Retrieve a checkout session/order by ID.
+   * Used for the admin order detail page.
+   */
+  retrieveSession(sessionId: string): Promise<PaymentSession | null>;
+
+  /**
+   * List recent checkout sessions/orders from the provider.
+   * Used for the admin orders page.
+   */
+  listSessions(params: ListSessionsParams): Promise<PaymentSessionListResult>;
 }
+
+/** Result of listing payment sessions */
+export type PaymentSessionListResult = {
+  sessions: PaymentSession[];
+  hasMore: boolean;
+};
 
 /**
  * Resolve the active payment provider based on admin settings.

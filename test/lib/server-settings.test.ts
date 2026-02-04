@@ -5,11 +5,9 @@ import { handleRequest } from "#routes";
 import {
   awaitTestRequest,
   createTestDbWithSetup,
-  createTestEvent,
   mockFormRequest,
   mockRequest,
   resetDb,
-  resetTestSlugCounter,
   expectAdminRedirect,
   expectRedirect,
   loginAsAdmin,
@@ -19,7 +17,6 @@ import {
 
 describe("server (admin settings)", () => {
   beforeEach(async () => {
-    resetTestSlugCounter();
     await createTestDbWithSetup();
   });
 
@@ -169,7 +166,7 @@ describe("server (admin settings)", () => {
       expect(html).toContain("Current password is incorrect");
     });
 
-    test("changes password and invalidates session", async () => {
+    test("changes password and redirects with session cleared", async () => {
       const { cookie, csrfToken } = await loginAsAdmin();
 
       const response = await handleRequest(
@@ -185,16 +182,47 @@ describe("server (admin settings)", () => {
         ),
       );
 
-      // Should redirect to admin login with session cleared
       expectAdminRedirect(response);
       expect(response.headers.get("set-cookie")).toContain("Max-Age=0");
+    });
 
-      // Verify old session is invalidated
+    test("old session is invalidated after password change", async () => {
+      const { cookie, csrfToken } = await loginAsAdmin();
+
+      await handleRequest(
+        mockFormRequest(
+          "/admin/settings",
+          {
+            current_password: TEST_ADMIN_PASSWORD,
+            new_password: "newpassword123",
+            new_password_confirm: "newpassword123",
+            csrf_token: csrfToken,
+          },
+          cookie,
+        ),
+      );
+
       const dashboardResponse = await awaitTestRequest("/admin/", { cookie });
       const html = await dashboardResponse.text();
-      expect(html).toContain("Login"); // Should show login, not dashboard
+      expect(html).toContain("Login");
+    });
 
-      // Verify new password works
+    test("new password works after password change", async () => {
+      const { cookie, csrfToken } = await loginAsAdmin();
+
+      await handleRequest(
+        mockFormRequest(
+          "/admin/settings",
+          {
+            current_password: TEST_ADMIN_PASSWORD,
+            new_password: "newpassword123",
+            new_password_confirm: "newpassword123",
+            csrf_token: csrfToken,
+          },
+          cookie,
+        ),
+      );
+
       const newLoginResponse = await handleRequest(
         mockFormRequest("/admin/login", { username: "testadmin", password: "newpassword123" }),
       );
@@ -662,13 +690,6 @@ describe("server (admin settings)", () => {
     });
 
     test("resets database and redirects to setup on correct phrase", async () => {
-      // Create some data first
-      await createTestEvent({
-        name: "Test Event",
-        maxAttendees: 100,
-        thankYouUrl: "https://example.com/thanks",
-      });
-
       const { cookie, csrfToken } = await loginAsAdmin();
 
       const response = await handleRequest(

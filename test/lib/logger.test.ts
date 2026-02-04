@@ -10,20 +10,6 @@ import {
 
 describe("logger", () => {
   describe("redactPath", () => {
-    test("redacts ticket slugs", () => {
-      expect(redactPath("/ticket/summer-concert-2024")).toBe(
-        "/ticket/[redacted]",
-      );
-    });
-
-    test("redacts simple ticket slugs", () => {
-      expect(redactPath("/ticket/abc")).toBe("/ticket/[redacted]");
-    });
-
-    test("preserves /ticket without slug", () => {
-      expect(redactPath("/ticket")).toBe("/ticket");
-    });
-
     test("redacts numeric IDs in admin paths", () => {
       expect(redactPath("/admin/events/123")).toBe("/admin/events/[id]");
     });
@@ -65,13 +51,13 @@ describe("logger", () => {
     test("logs request with redacted path", () => {
       logRequest({
         method: "GET",
-        path: "/ticket/my-event",
+        path: "/admin/products/42",
         status: 200,
         durationMs: 42,
       });
 
       expect(debugSpy).toHaveBeenCalledWith(
-        "[Request] GET /ticket/[redacted] 200 42ms",
+        "[Request] GET /admin/products/[id] 200 42ms",
       );
     });
 
@@ -117,20 +103,6 @@ describe("logger", () => {
       expect(errorSpy).toHaveBeenCalledWith("[Error] E_DB_CONNECTION");
     });
 
-    test("logs error with event ID", () => {
-      logError({ code: ErrorCode.CAPACITY_EXCEEDED, eventId: 42 });
-
-      expect(errorSpy).toHaveBeenCalledWith(
-        "[Error] E_CAPACITY_EXCEEDED event=42",
-      );
-    });
-
-    test("logs error with attendee ID", () => {
-      logError({ code: ErrorCode.WEBHOOK_SEND, attendeeId: 99 });
-
-      expect(errorSpy).toHaveBeenCalledWith("[Error] E_WEBHOOK_SEND attendee=99");
-    });
-
     test("logs error with detail", () => {
       logError({ code: ErrorCode.STRIPE_SIGNATURE, detail: "mismatch" });
 
@@ -139,16 +111,14 @@ describe("logger", () => {
       );
     });
 
-    test("logs error with all context", () => {
+    test("logs error with code and detail", () => {
       logError({
-        code: ErrorCode.NOT_FOUND_EVENT,
-        eventId: 1,
-        attendeeId: 2,
+        code: ErrorCode.NOT_FOUND_PRODUCT,
         detail: "inactive",
       });
 
       expect(errorSpy).toHaveBeenCalledWith(
-        '[Error] E_NOT_FOUND_EVENT event=1 attendee=2 detail="inactive"',
+        '[Error] E_NOT_FOUND_PRODUCT detail="inactive"',
       );
     });
   });
@@ -203,14 +173,31 @@ describe("logger", () => {
     });
   });
 
-  describe("ErrorCode constants", () => {
-    test("has expected error codes", () => {
-      expect(ErrorCode.DB_CONNECTION).toBe("E_DB_CONNECTION");
-      expect(ErrorCode.CAPACITY_EXCEEDED).toBe("E_CAPACITY_EXCEEDED");
-      expect(ErrorCode.DECRYPT_FAILED).toBe("E_DECRYPT_FAILED");
-      expect(ErrorCode.AUTH_CSRF_MISMATCH).toBe("E_AUTH_CSRF_MISMATCH");
-      expect(ErrorCode.STRIPE_SIGNATURE).toBe("E_STRIPE_SIGNATURE");
-      expect(ErrorCode.WEBHOOK_SEND).toBe("E_WEBHOOK_SEND");
+  describe("ErrorCode usage", () => {
+    let errorSpy: ReturnType<typeof spyOn>;
+
+    beforeEach(() => {
+      errorSpy = spyOn(console, "error");
+    });
+
+    afterEach(() => {
+      errorSpy.mockRestore();
+    });
+
+    test("all error codes produce correctly prefixed log output", () => {
+      for (const key of Object.keys(ErrorCode)) {
+        const code = ErrorCode[key as keyof typeof ErrorCode];
+        logError({ code });
+        expect(errorSpy).toHaveBeenCalledWith(`[Error] ${code}`);
+        errorSpy.mockClear();
+      }
+    });
+
+    test("error codes start with E_ prefix", () => {
+      for (const key of Object.keys(ErrorCode)) {
+        const code = ErrorCode[key as keyof typeof ErrorCode];
+        expect(code.startsWith("E_")).toBe(true);
+      }
     });
   });
 });

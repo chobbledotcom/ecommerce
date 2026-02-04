@@ -3,7 +3,9 @@
  */
 
 import { type Child, SafeHtml } from "#jsx/jsx-runtime.ts";
-import { CSS_PATH } from "#src/config/asset-paths.ts";
+
+/** CSS stylesheet path */
+const CSS_PATH = "/mvp.css";
 
 export const escapeHtml = (str: string): string =>
   str

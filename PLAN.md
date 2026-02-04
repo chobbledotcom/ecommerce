@@ -1,19 +1,29 @@
 # Implementation Plan: Ecommerce Backend
 
-Replace the ticket reservation system with a minimal ecommerce checkout backend.
+Replace the ticket reservation system with an ecommerce checkout backend.
 The backend is the source of truth for product catalog and stock levels, connects
 to a static site for the storefront, and delegates all order/customer data
-storage to Stripe.
+storage to the configured payment provider (Stripe or Square).
 
 ## Design Principles
 
 - **Backend owns products and stock** — the static site fetches catalog from the API
-- **Stripe owns orders and customers** — we store only `stripe_session_id` in our
-  stock reservations table, and query Stripe's API for everything else
-- **No PII in our database** — no customer names, emails, or addresses stored locally
-- **No encryption needed** — the only sensitive value is the Stripe secret key
-  (stored as a Bunny native secret env var, not in the DB)
-- **Stateless checkout flow** — reserve stock → create Stripe session → confirm on
+- **Payment provider owns orders and customers** — we store only the provider's
+  session/order ID in our stock reservations table, and query the provider's API
+  for order details
+- **No customer PII in our database** — no customer names, emails, or addresses
+  stored locally; admin usernames and API keys are encrypted at rest (existing model)
+- **Keep existing encryption model** — the user/session/settings encryption
+  infrastructure from the tickets app is retained as-is (`DB_ENCRYPTION_KEY`,
+  KEK/data-key hierarchy, encrypted settings)
+- **Keep existing multi-user auth** — owner and manager roles with invite flow;
+  managers cannot access settings or user management
+- **Keep payment provider abstraction** — Stripe and Square via the existing
+  `PaymentProvider` interface, configured through the admin settings page
+- **All config via admin settings page** — payment keys, allowed origins, currency,
+  and other settings are stored encrypted in the database, not in environment
+  variables (except `DB_URL`, `DB_TOKEN`, `DB_ENCRYPTION_KEY`, `ALLOWED_DOMAIN`)
+- **Stateless checkout flow** — reserve stock → create provider session → confirm on
   webhook → release on expiry/cancel
 
 ## Architecture Overview
@@ -22,21 +32,22 @@ storage to Stripe.
 Static Site (your domain)
     │
     ├── GET  /api/products          ← fetch catalog + stock at build time & page load
-    ├── POST /api/checkout          ← submit cart, get Stripe Checkout URL
+    ├── POST /api/checkout          ← submit cart, get payment provider Checkout URL
     │
-    └── Stripe Checkout (hosted)
+    └── Payment Provider Checkout (hosted by Stripe/Square)
             │
             ├── success → redirect to static site /order-complete/
-            └── webhook → POST /api/webhook/stripe
+            └── webhook → POST /payment/webhook
                               │
-                              ├── checkout.session.completed → confirm reservation
-                              ├── checkout.session.expired   → release reservation
-                              └── charge.refunded            → restock
+                              ├── checkout completed → confirm reservation
+                              ├── checkout expired   → release reservation
+                              └── refunded           → restock
 ```
 
 ## Database Schema
 
-Three tables. That's it.
+New tables for ecommerce. The existing tables (users, sessions, settings,
+login_attempts, activity_log) are retained as-is from the tickets app.
 
 ```sql
 -- Product catalog (source of truth for prices and stock)
@@ -48,7 +59,6 @@ CREATE TABLE products (
     unit_price INTEGER NOT NULL,          -- in smallest currency unit (pence/cents)
     stock INTEGER NOT NULL DEFAULT 0,     -- 0 = out of stock, -1 = unlimited
     active INTEGER NOT NULL DEFAULT 1,    -- 0 = hidden from catalog
-    image_url TEXT NOT NULL DEFAULT '',
     created TEXT NOT NULL
 );
 
@@ -57,20 +67,14 @@ CREATE TABLE stock_reservations (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     product_id INTEGER NOT NULL,
     quantity INTEGER NOT NULL,
-    stripe_session_id TEXT NOT NULL,
+    provider_session_id TEXT NOT NULL,     -- Stripe session ID or Square order ID
     status TEXT NOT NULL DEFAULT 'pending',  -- pending | confirmed | expired
     created TEXT NOT NULL,
     FOREIGN KEY (product_id) REFERENCES products(id)
 );
 
-CREATE INDEX idx_reservations_session ON stock_reservations(stripe_session_id);
+CREATE INDEX idx_reservations_session ON stock_reservations(provider_session_id);
 CREATE INDEX idx_reservations_status ON stock_reservations(status, created);
-
--- Settings (admin password hash, webhook config)
-CREATE TABLE settings (
-    key TEXT PRIMARY KEY,
-    value TEXT NOT NULL
-);
 ```
 
 ### Stock Reservation Flow
@@ -80,8 +84,8 @@ CREATE TABLE settings (
    -- Check available stock (total - pending/confirmed reservations)
    -- If sufficient, INSERT into stock_reservations with status='pending'
    ```
-2. `checkout.session.completed` webhook → UPDATE reservation status to `confirmed`
-3. `checkout.session.expired` webhook → UPDATE reservation status to `expired`
+2. Checkout completed webhook → UPDATE reservation status to `confirmed`
+3. Checkout expired webhook → UPDATE reservation status to `expired`
 4. Periodic cleanup: expire `pending` reservations older than 30 minutes
    (Stripe sessions expire after 24h by default, but we can be more aggressive)
 
@@ -99,36 +103,50 @@ returns prices in both formats for convenience.
 | Method | Path | Purpose |
 |--------|------|---------|
 | `GET` | `/api/products` | Product catalog (active products with stock levels) |
-| `POST` | `/api/checkout` | Validate cart, reserve stock, create Stripe session |
+| `POST` | `/api/checkout` | Validate cart, reserve stock, create provider checkout session |
 | `GET` | `/health` | Status + configured providers |
 
-### Webhook (Stripe signature verified)
+### Webhook (provider signature verified)
 
 | Method | Path | Purpose |
 |--------|------|---------|
-| `POST` | `/api/webhook/stripe` | Handle checkout.session.completed/expired, charge.refunded |
+| `POST` | `/payment/webhook` | Handle checkout completed/expired, refunds (Stripe or Square) |
 
 ### Admin (session auth, HTML UI)
 
+All admin routes require authentication. Routes marked **(owner)** are restricted
+to owner role only; managers cannot access them.
+
+| Method | Path | Access | Purpose |
+|--------|------|--------|---------|
+| `GET` | `/admin` | all | Dashboard — product list with stock levels |
+| `POST` | `/admin/login` | public | Authenticate |
+| `GET` | `/admin/logout` | all | Clear session |
+| `POST` | `/admin/product/new` | all | Create product |
+| `GET` | `/admin/product/:id/edit` | all | Edit form |
+| `POST` | `/admin/product/:id` | all | Update product (name, SKU, price, stock, etc.) |
+| `POST` | `/admin/product/:id/delete` | all | Delete product |
+| `GET` | `/admin/orders` | all | List recent orders (fetched from payment provider API) |
+| `GET` | `/admin/orders/:sessionId` | all | Order detail (fetched from payment provider API) |
+| `GET` | `/admin/users` | owner | List users |
+| `POST` | `/admin/users` | owner | Invite new user (owner or manager) |
+| `POST` | `/admin/users/:id/delete` | owner | Delete user |
+| `GET` | `/admin/settings` | owner | Settings page |
+| `POST` | `/admin/settings/password` | owner | Change password |
+| `POST` | `/admin/settings/payment-provider` | owner | Select Stripe/Square/none |
+| `POST` | `/admin/settings/stripe` | owner | Configure Stripe keys |
+| `POST` | `/admin/settings/square` | owner | Configure Square keys |
+| `POST` | `/admin/settings/allowed-origins` | owner | Configure CORS allowed origins |
+| `POST` | `/admin/settings/currency` | owner | Set currency code |
+| `GET` | `/admin/sessions` | all | View own active sessions |
+| `POST` | `/admin/sessions/delete-others` | all | Logout other sessions |
+
+### Setup (existing flow, unchanged)
+
 | Method | Path | Purpose |
 |--------|------|---------|
-| `GET` | `/admin` | Dashboard — product list with stock levels |
-| `POST` | `/admin/login` | Authenticate |
-| `GET` | `/admin/logout` | Clear session |
-| `POST` | `/admin/product/new` | Create product |
-| `GET` | `/admin/product/:id/edit` | Edit form |
-| `POST` | `/admin/product/:id` | Update product |
-| `POST` | `/admin/product/:id/delete` | Delete product |
-| `GET` | `/admin/orders` | List recent orders (fetched from Stripe API) |
-| `GET` | `/admin/orders/:sessionId` | Order detail (fetched from Stripe API) |
-| `POST` | `/admin/settings/password` | Change admin password |
-
-### Setup
-
-| Method | Path | Purpose |
-|--------|------|---------|
-| `GET` | `/setup` | Initial admin password setup form |
-| `POST` | `/setup` | Create admin user |
+| `GET` | `/setup` | Initial setup form (owner user, currency, encryption keys) |
+| `POST` | `/setup` | Create owner user + initialise encryption key hierarchy |
 
 ## Environment Variables (Bunny Native Secrets)
 
@@ -136,124 +154,104 @@ returns prices in both formats for convenience.
 |----------|----------|---------|
 | `DB_URL` | Yes | libsql database URL |
 | `DB_TOKEN` | For remote DB | Database auth token |
-| `ALLOWED_ORIGINS` | Yes | Comma-separated allowed origins (e.g. `https://myshop.com,https://www.myshop.com`) |
-| `STRIPE_SECRET_KEY` | Yes | Stripe API secret key |
-| `STRIPE_WEBHOOK_SECRET` | Yes | Stripe webhook signing secret |
-| `CURRENCY` | No | ISO 4217 code (default: `GBP`) |
+| `DB_ENCRYPTION_KEY` | Yes | 32-byte base64-encoded encryption key |
+| `ALLOWED_DOMAIN` | Yes | Domain for webhook URL construction and security validation |
 | `PORT` | No | Server port (default: `3000`, local dev only) |
 
-Note: compared to the old version, we no longer need `BRAND_NAME` (Stripe shows the
-business name from your Stripe account), `PAYPAL_*` (dropping PayPal for v1), or
-`SITE_HOST` (replaced by `ALLOWED_ORIGINS` which is more explicit). We no longer
-need `DB_ENCRYPTION_KEY` or `ALLOWED_DOMAIN` from the tickets app since we're not
-storing PII and CORS replaces domain validation.
+All other configuration (payment provider keys, allowed origins, currency) is
+stored encrypted in the database and managed through the admin settings page.
+This is the same model as the tickets app.
+
+### Settings (stored in DB, managed via admin UI)
+
+| Setting | Purpose |
+|---------|---------|
+| `PAYMENT_PROVIDER` | `"stripe"`, `"square"`, or `"none"` |
+| `STRIPE_SECRET_KEY` | Stripe API secret key (encrypted) |
+| `STRIPE_WEBHOOK_SECRET` | Stripe webhook signing secret (encrypted) |
+| `SQUARE_ACCESS_TOKEN` | Square access token (encrypted) |
+| `SQUARE_LOCATION_ID` | Square location ID (encrypted) |
+| `SQUARE_WEBHOOK_SIGNATURE_KEY` | Square webhook signature key (encrypted) |
+| `ALLOWED_ORIGINS` | Comma-separated allowed origins for CORS |
+| `CURRENCY_CODE` | ISO 4217 code (default: `GBP`) |
+| `SETUP_COMPLETE` | Boolean flag |
 
 ---
 
-# Step 1: Delete Unneeded Code
+# Step 1: Delete Ticket-Specific Code ✅
 
-Remove everything related to the ticket reservation system that won't be reused.
+Remove only the code that is purely about events, attendees, tickets, check-in,
+and QR codes. Keep all reusable infrastructure intact.
 
-## Keep (reuse as-is or with minor changes)
+## Kept (all reusable infrastructure)
 
-| File | Reason |
-|------|--------|
-| `src/fp/index.ts` | FP utilities — used throughout |
-| `src/lib/db/client.ts` | libsql wrapper (`getDb`, `queryOne`, `queryBatch`, etc.) |
-| `src/lib/db/table.ts` | Generic table abstraction (`defineTable`, `col.*`) |
-| `src/routes/router.ts` | Declarative router with pattern matching |
-| `src/routes/health.ts` | Health check (will extend to report Stripe status) |
-| `src/test-utils/test-compat.ts` | Jest-like test API on Deno |
-| `src/index.ts` | Entry point (simplify — remove encryption key validation) |
-| `src/edge/bunny-script.ts` | Edge runtime compat |
+| Category | Files | Reason |
+|----------|-------|--------|
+| FP utilities | `src/fp/index.ts` | Used throughout |
+| Database | `src/lib/db/client.ts`, `table.ts`, `migrations/`, `sessions.ts`, `users.ts`, `settings.ts`, `login-attempts.ts`, `activityLog.ts`, `processed-payments.ts` | Auth, sessions, settings, logging all reused |
+| Encryption | `src/lib/crypto.ts`, `payment-crypto.ts` | Encryption model retained |
+| Payments | `src/lib/payments.ts`, `payment-helpers.ts`, `stripe.ts`, `stripe-provider.ts`, `square.ts`, `square-provider.ts` | Provider abstraction + both providers retained |
+| Auth/config | `src/lib/config.ts`, `env.ts`, `logger.ts`, `types.ts`, `forms.tsx`, `webhook.ts` | Reusable utilities |
+| REST | `src/lib/rest/` | Resource abstraction |
+| JSX | `src/lib/jsx/` | Admin page rendering |
+| Routes | `src/routes/` (router, index, middleware, health, setup, webhooks, static, assets, admin/*) | Admin framework, auth, settings, sessions, users all reused |
+| Templates | `src/templates/` (layout, setup, admin/login, admin/dashboard, admin/nav, admin/sessions, admin/settings, admin/users, fields) | Admin UI templates |
+| Static | `src/static/` | CSS and favicon |
+| Test infra | `src/test-utils/`, `src/types/`, `src/edge/` | Test compat, type declarations, edge runtime |
+| Entry point | `src/index.ts` | Server entry |
 
-## Keep but modify significantly
-
-| File | Changes needed |
-|------|---------------|
-| `src/lib/db/migrations/index.ts` | Replace all tables with: products, stock_reservations, settings |
-| `src/routes/index.ts` | Replace route tree — remove ticket/checkin/join routes, add product API + checkout |
-| `src/routes/middleware.ts` | Replace domain validation with CORS; keep security headers; all POST endpoints accept JSON |
-| `src/lib/config.ts` | Simplify to env-only config (ALLOWED_ORIGINS, STRIPE_SECRET_KEY, CURRENCY, etc.) |
-| `src/test-utils/index.ts` | Simplify — remove encryption setup, attendee helpers; add product/cart helpers |
-
-## Delete entirely
+## Deleted (ticket-specific only)
 
 | Path | What it was |
 |------|-------------|
-| `src/lib/crypto.ts` | Encryption/hashing (no PII to encrypt) |
-| `src/lib/payment-crypto.ts` | Payment-related crypto |
-| `src/lib/payments.ts` | Provider-agnostic payment abstraction (overkill for Stripe-only) |
-| `src/lib/payment-helpers.ts` | Payment helper utilities |
-| `src/lib/stripe-provider.ts` | Stripe PaymentProvider impl (replace with direct Stripe usage) |
-| `src/lib/stripe.ts` | Stripe SDK wrapper (rewrite for checkout-only use case) |
-| `src/lib/square.ts` | Square integration |
-| `src/lib/square-provider.ts` | Square PaymentProvider impl |
-| `src/lib/forms.tsx` | Form validation (admin forms will be simpler) |
-| `src/lib/slug.ts` | Slug generation (products use SKU, not slugs) |
-| `src/lib/qr.ts` | QR code generation |
-| `src/lib/webhook.ts` | Webhook notification forwarding |
-| `src/lib/env.ts` | Environment helpers (if ticket-specific) |
-| `src/lib/logger.ts` | Structured error logger (simplify inline) |
-| `src/lib/types.ts` | Ticket-specific types |
-| `src/lib/db/events.ts` | Events table operations |
-| `src/lib/db/attendees.ts` | Attendee operations |
-| `src/lib/db/sessions.ts` | Admin session management (rewrite simplified) |
-| `src/lib/db/users.ts` | Multi-user admin (single admin only) |
-| `src/lib/db/activityLog.ts` | Activity logging |
-| `src/lib/db/login-attempts.ts` | Login rate limiting |
-| `src/lib/db/processed-payments.ts` | Payment idempotency (replaced by stock_reservations) |
-| `src/lib/db/settings.ts` | Settings table (rewrite — simpler, no encryption) |
-| `src/lib/rest/` | REST resource abstraction |
-| `src/lib/jsx/` | JSX runtime (keep only if admin pages use JSX) |
-| `src/routes/public.ts` | Ticket registration pages |
-| `src/routes/webhooks.ts` | Payment webhook handling (rewrite for ecommerce) |
+| `src/lib/db/attendees.ts` | Attendee data model |
+| `src/lib/db/events.ts` | Events data model |
+| `src/lib/qr.ts` | QR code generation for tickets |
+| `src/lib/slug.ts` | Slug generation for event URLs |
+| `src/config/asset-paths.ts` | Ticket asset path config |
 | `src/routes/checkin.ts` | Check-in routes |
-| `src/routes/join.ts` | Invite acceptance |
-| `src/routes/setup.ts` | Setup flow (rewrite simplified) |
+| `src/routes/join.ts` | Invite acceptance flow |
 | `src/routes/tickets.ts` | Ticket display |
 | `src/routes/token-utils.ts` | Ticket token utilities |
-| `src/routes/static.ts` | Static file serving |
-| `src/routes/assets.ts` | Asset handling |
-| `src/routes/admin/` | Entire admin directory (rewrite) |
-| `src/templates/` | All JSX templates (rewrite) |
-| `src/static/` | CSS and favicon |
-| `src/config/asset-paths.ts` | Asset path config |
-| `src/types/` | Type declarations |
-| `src/test-utils/stripe-mock.ts` | Stripe mock (rewrite for new API shape) |
-| `test/` | All existing tests (rewrite for new functionality) |
+| `src/routes/public.ts` | Ticket registration pages |
+| `src/routes/admin/attendees.ts` | Admin attendee management |
+| `src/routes/admin/events.ts` | Admin event management |
+| `src/templates/checkin.tsx` | Check-in template |
+| `src/templates/join.tsx` | Join/invite template |
+| `src/templates/tickets.tsx` | Ticket display template |
+| `src/templates/public.tsx` | Public registration template |
+| `src/templates/payment.tsx` | Payment form template |
+| `src/templates/csv.ts` | CSV export for attendees |
+| `test/lib/slug.test.ts` | Slug tests |
+| `test/lib/qr.test.ts` | QR tests |
+| `test/lib/server-attendees.test.ts` | Attendee route tests |
+| `test/lib/server-events.test.ts` | Event route tests |
+| `test/lib/server-checkin.test.ts` | Check-in route tests |
+| `test/lib/server-tickets.test.ts` | Ticket route tests |
+| `test/lib/server-public.test.ts` | Public route tests |
 
-## Procedure
+## deno.json changes
 
-1. Create a fresh branch state by deleting all files in `src/` except:
-   - `src/fp/index.ts`
-   - `src/lib/db/client.ts`
-   - `src/lib/db/table.ts`
-   - `src/routes/router.ts`
-   - `src/test-utils/test-compat.ts`
-   - `src/edge/bunny-script.ts`
-2. Delete all files in `test/`
-3. Update `deno.json` imports: remove `#jsx`, `#templates`, `#static`, `square`,
-   `qrcode`; keep `#fp`, `#test-compat`, `#test-utils`, `#lib`, `#routes`,
-   `@libsql/client`, `stripe`, `esbuild`, `@bunny.net/edgescript-sdk`
-4. Commit: "Remove ticket reservation system, keep reusable infrastructure"
+- Removed `qrcode` dependency
+- All other imports and dependencies retained
 
 ---
 
-# Step 2: Turn Events Into Products
+# Step 2: Add Products and Stock Reservations
 
-Build the product catalog and stock management system, reusing the table
-abstraction from the tickets app.
+Add the product catalog and stock reservation system. The existing auth,
+encryption, sessions, users, settings, and payment provider infrastructure
+stays unchanged — we're adding new tables alongside them.
 
-## 2.1 Database Schema (`src/lib/db/migrations/index.ts`)
+## 2.1 Database Migrations (`src/lib/db/migrations/index.ts`)
 
-Rewrite migrations to create:
+Add migrations for the new tables (do not replace existing migrations):
 - `products` table (see schema above)
 - `stock_reservations` table
-- `settings` table
 
-Keep the same migration pattern (idempotent `runMigration`, version tracking
-via `latest_db_update` setting).
+Existing tables (users, sessions, settings, login_attempts, activity_log,
+processed_payments) remain. Keep the same migration pattern (idempotent
+`runMigration`, version tracking via `latest_db_update` setting).
 
 ## 2.2 Products Table (`src/lib/db/products.ts`)
 
@@ -295,7 +293,7 @@ export const reservationsTable = defineTable<Reservation, ReservationInput>({
     id: col.generated<number>(),
     product_id: col.simple<number>(),
     quantity: col.simple<number>(),
-    stripe_session_id: col.simple<string>(),
+    provider_session_id: col.simple<string>(),
     status: col.withDefault(() => "pending"),
     created: col.withDefault(() => new Date().toISOString()),
   },
@@ -303,10 +301,10 @@ export const reservationsTable = defineTable<Reservation, ReservationInput>({
 ```
 
 Operations needed:
-- `reserveStock(productId, quantity, stripeSessionId)` — atomic reserve with
+- `reserveStock(productId, quantity, providerSessionId)` — atomic reserve with
   availability check:
   ```sql
-  INSERT INTO stock_reservations (product_id, quantity, stripe_session_id, status, created)
+  INSERT INTO stock_reservations (product_id, quantity, provider_session_id, status, created)
   SELECT ?, ?, ?, 'pending', ?
   WHERE (
     SELECT stock FROM products WHERE id = ? AND active = 1
@@ -317,98 +315,90 @@ Operations needed:
   ```
   Returns success/failure. This is the same atomic pattern as
   `createAttendeeAtomic` from the tickets app.
-- `confirmReservation(stripeSessionId)` — UPDATE status to `confirmed`
-- `expireReservation(stripeSessionId)` — UPDATE status to `expired`
+- `confirmReservation(providerSessionId)` — UPDATE status to `confirmed`
+- `expireReservation(providerSessionId)` — UPDATE status to `expired`
 - `expireStaleReservations(maxAgeMs)` — expire old `pending` reservations
-- `restockFromRefund(stripeSessionId)` — set confirmed reservations to `expired`
+- `restockFromRefund(providerSessionId)` — set confirmed reservations to `expired`
   (returns stock to pool)
 
-## 2.4 Settings Table (`src/lib/db/settings.ts`)
+## 2.4 Existing Infrastructure (unchanged)
 
-Simplified version — no encryption, just key-value:
-- `getSetting(key)` / `setSetting(key, value)`
-- Used for: `admin_password_hash`, `setup_complete`, `notification_webhook_url`
+These modules are **not modified** in this step:
+- `src/lib/db/settings.ts` — existing encrypted key-value settings (used for
+  payment provider config, currency, allowed origins, etc.)
+- `src/lib/db/users.ts` — multi-user with owner/manager roles
+- `src/lib/db/sessions.ts` — session management with data key wrapping
+- `src/lib/db/login-attempts.ts` — login rate limiting
+- `src/lib/db/activityLog.ts` — activity logging
+- `src/lib/db/processed-payments.ts` — payment idempotency
+- `src/lib/config.ts` — config reading from env + DB settings
+- `src/lib/crypto.ts` — encryption/hashing
+- `src/lib/payments.ts` — payment provider abstraction
+- `src/lib/stripe.ts`, `src/lib/stripe-provider.ts` — Stripe integration
+- `src/lib/square.ts`, `src/lib/square-provider.ts` — Square integration
+- `src/index.ts` — entry point (existing encryption key validation stays)
 
-## 2.5 Config (`src/lib/config.ts`)
+## 2.5 Config additions (`src/lib/config.ts`)
 
-Read all config from environment variables:
+Add a function to read allowed origins from the DB settings (not env vars):
+
 ```typescript
-export const getAllowedOrigins = (): string[] =>
-  (process.env.ALLOWED_ORIGINS ?? "").split(",").map(s => s.trim()).filter(Boolean);
-
-export const getStripeSecretKey = (): string =>
-  process.env.STRIPE_SECRET_KEY ?? "";
-
-export const getStripeWebhookSecret = (): string =>
-  process.env.STRIPE_WEBHOOK_SECRET ?? "";
-
-export const getCurrency = (): string =>
-  process.env.CURRENCY ?? "GBP";
+export const getAllowedOrigins = async (): Promise<string[]> =>
+  // Read ALLOWED_ORIGINS from encrypted settings table
+  // Returns comma-separated origins, split and trimmed
 ```
 
-## 2.6 Auth (`src/lib/auth.ts`)
+This works alongside the existing `getPaymentProvider()`, `getCurrencyCode()`,
+etc. that already read from DB settings.
 
-Single-admin auth reusing the sessions table pattern, but simplified:
-- No multi-user, no invite codes, no wrapped data keys
-- Password hashing with PBKDF2 (reuse the algorithm from crypto.ts, just the
-  hashing parts — no encryption)
-- Session tokens: random string, hashed for DB storage, set as cookie
-- CSRF tokens on forms
+## 2.6 Extend Payment Provider interface
 
-Sessions table:
-```sql
-CREATE TABLE sessions (
-    token TEXT PRIMARY KEY,
-    csrf_token TEXT NOT NULL,
-    expires INTEGER NOT NULL
-);
-```
+Add a `listSessions` method to the `PaymentProvider` interface for order
+viewing in admin:
 
-## 2.7 Entry Point (`src/index.ts`)
-
-Simplify:
 ```typescript
-import { initDb } from "#lib/db/migrations/index.ts";
-import { handleRequest } from "#routes/index.ts";
-
-await initDb();
-Deno.serve({ port: Number(process.env.PORT ?? 3000) }, handleRequest);
+// Add to PaymentProvider interface:
+listSessions(params: { limit: number; startingAfter?: string }):
+  Promise<{ sessions: PaymentSession[]; hasMore: boolean }>;
 ```
 
-No encryption key validation needed.
+Implement for Stripe (using `checkout.sessions.list`) and Square (using
+Orders API `searchOrders`). Square's implementation is new — the existing
+code only has `retrieveOrder` by ID.
 
-## 2.8 Tests
+## 2.7 Tests
 
-Write tests for:
+Write tests for new code only:
 - `products.ts` — CRUD, `getAvailableStock`, active filtering
 - `reservations.ts` — reserve/confirm/expire/restock, atomic availability check,
   stale reservation cleanup
-- `settings.ts` — get/set
-- `config.ts` — env var parsing, defaults
-- `auth.ts` — password hashing, session creation/validation/expiry
-- `migrations/index.ts` — schema creation, idempotent re-runs
+- `config.ts` — `getAllowedOrigins` from DB settings
+- `migrations/index.ts` — new table creation alongside existing tables
+
+Existing tests for auth, sessions, users, settings, payments etc. should
+continue to pass unchanged.
 
 Test utils to add:
-- `createTestDb()` — in-memory SQLite with new schema
-- `resetDb()` — clear all tables
 - `createTestProduct(overrides?)` — insert a product with sensible defaults
-- `createTestSession()` — authenticated admin session
 
-Commit: "Add product catalog, stock reservations, and admin auth"
+Commit: "Add product catalog and stock reservations"
 
 ---
 
 # Step 3: Support API Calls
 
-Build the HTTP layer: public product API, checkout, webhooks, admin pages.
+Build the HTTP layer: public product API, checkout, webhooks, and admin
+product/order management. The existing admin auth, settings, users, and
+sessions routes are reused — we're adding new routes alongside them.
 
 ## 3.1 CORS Middleware (`src/routes/middleware.ts`)
 
-Replace domain validation with CORS:
+Add CORS support alongside the existing domain validation and security headers.
+Allowed origins are read from the DB settings table (configured via admin UI).
 
 ```typescript
-export const corsHeaders = (origin: string | null): Record<string, string> => {
-  const allowed = getAllowedOrigins();
+export const corsHeaders = async (origin: string | null): Promise<Record<string, string>> => {
+  const allowed = await getAllowedOrigins(); // from DB settings
   if (origin && allowed.includes(origin)) {
     return {
       "access-control-allow-origin": origin,
@@ -422,7 +412,7 @@ export const corsHeaders = (origin: string | null): Record<string, string> => {
 
 Handle OPTIONS preflight requests in the main router.
 
-Keep security headers (CSP, X-Frame-Options, etc.) for admin pages.
+Keep existing security headers (CSP, X-Frame-Options, etc.) for admin pages.
 
 ## 3.2 Public API Routes (`src/routes/api.ts`)
 
@@ -466,15 +456,16 @@ Request:
 ```
 
 Flow:
-1. Validate origin header against `ALLOWED_ORIGINS`
+1. Validate origin header against `ALLOWED_ORIGINS` (from DB settings)
 2. Validate items array (non-empty, valid structure)
 3. Fetch products by SKU, validate all exist and are active
 4. For each item, atomically reserve stock (using `reserveStock`)
 5. If any reservation fails, release all previous reservations and return error
-6. Create Stripe Checkout session with line items from DB prices
+6. Use the configured payment provider (via `PaymentProvider` interface) to
+   create a checkout session with line items from DB prices
    (not from request — backend is source of truth)
-7. Store the `stripe_session_id` in all reservations
-8. Return `{ url: session.url }` (redirect URL for Stripe Checkout)
+7. Store the provider's session/order ID in all reservations
+8. Return `{ url: session.url }` (redirect URL for provider checkout)
 
 Response (success):
 ```json
@@ -493,167 +484,183 @@ that — the backend is the source of truth. The static site fetches from us.
 This eliminates the whole `getSkuPrices` / `skuPricesCache` mechanism and the
 associated trust problem.
 
-## 3.3 Stripe Module (`src/lib/stripe.ts`)
+## 3.3 Payment Provider Integration
 
-Thin wrapper around the Stripe SDK:
+The existing `PaymentProvider` interface and provider implementations
+(`stripe-provider.ts`, `square-provider.ts`) are reused. The checkout flow
+uses `createCheckoutSession` / `createMultiCheckoutSession` from the active
+provider.
 
-```typescript
-export const createCheckoutSession = (params: {
-  lineItems: Array<{ name: string; unitAmount: number; quantity: number }>;
-  currency: string;
-  successUrl: string;
-  cancelUrl: string;
-  metadata: Record<string, string>;
-}) => { ... };
+The existing `src/lib/stripe.ts` and `src/lib/square.ts` modules handle the
+low-level SDK calls. These are extended (not rewritten) to support:
+- **Stripe**: `checkout.sessions.list` for order listing
+- **Square**: `searchOrders` for order listing (new)
 
-export const retrieveSession = (sessionId: string) => { ... };
-export const verifyWebhookSignature = (payload: string, signature: string) => { ... };
-```
-
-Metadata stored on the session:
+Metadata stored on the provider session:
 ```json
 { "reservation_ids": "1,2,3" }
 ```
 
-This lets the webhook handler know which reservations to confirm/expire
-without querying by session ID (though we can also query by session ID as
-a fallback).
+## 3.4 Webhook Route (`src/routes/webhooks.ts`)
 
-## 3.4 Webhook Route (`src/routes/webhook.ts`)
+Extend the existing webhook handler to handle stock reservation confirmation
+alongside the existing payment processing flow.
 
-### `POST /api/webhook/stripe`
+### `POST /payment/webhook` (existing route)
 
-Handles three event types:
+The existing webhook route already handles signature verification and provider
+dispatch. Add stock reservation handling to the completion/expiry/refund flows:
 
-**`checkout.session.completed`**:
+**On checkout completed** (existing event):
+1. Existing: verify signature, process payment
+2. New: update `stock_reservations` with that session ID from `pending` → `confirmed`
+
+**On checkout expired** (new handler):
 1. Verify signature
-2. Extract session ID
-3. Update all `stock_reservations` with that session ID from `pending` → `confirmed`
-4. (Optional) POST to notification webhook URL if configured in settings
-5. Return 200
+2. Update `stock_reservations` from `pending` → `expired`
 
-**`checkout.session.expired`**:
-1. Verify signature
-2. Extract session ID
-3. Update all `stock_reservations` with that session ID from `pending` → `expired`
-4. Return 200
-
-**`charge.refunded`**:
-1. Verify signature
-2. Extract payment intent → look up checkout session → get session ID
-3. Update `stock_reservations` from `confirmed` → `expired` (restocks)
-4. Return 200
+**On refund** (extend existing handler):
+1. Existing: verify signature
+2. New: update `stock_reservations` from `confirmed` → `expired` (restocks)
 
 All handlers are idempotent — updating an already-confirmed or already-expired
 reservation is a no-op.
 
-## 3.5 Admin Routes (`src/routes/admin/`)
+## 3.5 Admin Routes
 
-Minimal admin panel with HTML pages (reuse JSX template pattern from tickets app).
+### Existing admin routes (unchanged)
 
-### Dashboard (`GET /admin`)
-- List all products with: name, SKU, price, stock, available stock, active status
+These admin routes from the tickets app are reused as-is:
+- `src/routes/admin/auth.ts` — login/logout with multi-user support
+- `src/routes/admin/users.ts` — user management (owner only)
+- `src/routes/admin/settings.ts` — payment provider config, password change (owner only)
+- `src/routes/admin/sessions.ts` — session management
+- `src/routes/admin/utils.ts` — admin middleware helpers
+- `src/routes/admin/index.ts` — admin route aggregator (update to include new routes)
+
+### New admin routes
+
+#### `src/routes/admin/products.ts` (new)
+
+**Dashboard (`GET /admin`)** — modify existing dashboard:
+- Replace event list with product list
+- Show: name, SKU, price (formatted), stock, available stock, active status
 - "Add Product" button
 - Each product has Edit / Delete links
 
-### Product Form (`GET /admin/product/:id/edit`, `POST /admin/product/:id`)
+**Product Form (`GET /admin/product/:id/edit`, `POST /admin/product/:id`)**:
 - Fields: name, SKU, description, unit_price (displayed as decimal, stored as int),
   stock (-1 for unlimited), active checkbox, image_url
 - SKU uniqueness validation
+- Both owner and manager can manage products
 
-### Create Product (`POST /admin/product/new`)
+**Create Product (`POST /admin/product/new`)**:
 - Same form as edit, submitted to different endpoint
 
-### Delete Product (`POST /admin/product/:id/delete`)
+**Delete Product (`POST /admin/product/:id/delete`)**:
 - Confirmation required
 - Cascading delete of stock_reservations for that product
 
-### Orders (`GET /admin/orders`)
-- Calls `stripe.checkout.sessions.list({ limit: 25 })` and displays results
+#### `src/routes/admin/orders.ts` (new)
+
+**Orders (`GET /admin/orders`)**:
+- Uses the active payment provider's `listSessions` method
 - Shows: date, customer email, amount, payment status
-- Link to Stripe dashboard for each order
-- Pagination via Stripe cursor
+- Link to provider dashboard for each order
+- Pagination via provider cursor
+- Works with both Stripe and Square
 
-### Order Detail (`GET /admin/orders/:sessionId`)
-- Calls `stripe.checkout.sessions.retrieve(id, { expand: ['line_items'] })`
+**Order Detail (`GET /admin/orders/:sessionId`)**:
+- Uses the active provider's `retrieveSession` method
 - Shows line items, customer details, payment status
-- Link to Stripe dashboard
+- Link to provider dashboard
 
-### Auth (`POST /admin/login`, `GET /admin/logout`)
-- Session cookie + CSRF token
-- Single admin user
+### Settings additions
 
-### Settings (`POST /admin/settings/password`)
-- Change admin password
+Add to the existing settings page (owner only):
+- **Allowed Origins** (`POST /admin/settings/allowed-origins`):
+  comma-separated origins for CORS
+- **Currency** (`POST /admin/settings/currency`):
+  if not already configurable (check existing settings page)
 
-## 3.6 Setup Route (`src/routes/setup.ts`)
+The existing settings page already handles payment provider selection
+(Stripe/Square), Stripe key configuration, Square key configuration,
+and password changes.
 
-First-run setup:
-1. Check if `setup_complete` setting exists
-2. If not, show form to set admin password
-3. On submit, hash password, store in settings, set `setup_complete`
+## 3.6 Admin Templates
 
-## 3.7 Main Router (`src/routes/index.ts`)
+### Existing templates (unchanged or minor updates)
+- `src/templates/layout.tsx` — base HTML layout
+- `src/templates/admin/login.tsx` — login form
+- `src/templates/admin/nav.tsx` — navigation (update to add Products/Orders links)
+- `src/templates/admin/sessions.tsx` — session list
+- `src/templates/admin/settings.tsx` — settings form (add allowed origins field)
+- `src/templates/admin/users.tsx` — user management
+- `src/templates/setup.tsx` — setup form
+
+### New templates
+- `src/templates/admin/dashboard.tsx` — rewrite to show products instead of events
+- `src/templates/admin/products.tsx` — product create/edit form
+- `src/templates/admin/orders.tsx` — order list and detail views
+
+## 3.7 Setup Route (`src/routes/setup.ts`)
+
+Existing setup flow, unchanged. Creates owner user, generates encryption key
+hierarchy, sets currency code, marks setup complete.
+
+## 3.8 Main Router (`src/routes/index.ts`)
+
+Update the existing router to add the public API routes and CORS handling:
 
 ```typescript
-export const handleRequest = async (request: Request): Promise<Response> => {
-  // OPTIONS preflight
-  if (request.method === "OPTIONS") return handleCorsPreflightResponse(request);
+// Add to existing route handling:
 
-  // Health check (no auth, no CORS)
-  if (path === "/health") return handleHealthCheck();
+// OPTIONS preflight for CORS
+if (request.method === "OPTIONS") return handleCorsPreflightResponse(request);
 
-  // Setup (if not complete)
-  if (!isSetupComplete()) return routeSetup(request);
+// Public API (CORS-enabled, JSON) — NEW
+if (path.startsWith("/api/")) return withCors(routeApi(request));
 
-  // Public API (CORS-enabled, JSON)
-  if (path.startsWith("/api/")) return withCors(routeApi(request));
-
-  // Admin (session auth, HTML)
-  if (path.startsWith("/admin")) return routeAdmin(request);
-
-  return new Response("Not Found", { status: 404 });
-};
+// Existing routes continue to work:
+// /health, /setup, /admin/*, /payment/webhook, etc.
 ```
 
-## 3.8 Tests
+## 3.9 Tests
 
-Write tests for every route:
+Write tests for new routes:
 
 **API tests:**
 - `GET /api/products` — returns active products with stock, excludes inactive
 - `POST /api/checkout` — validates origin, validates cart, reserves stock,
-  returns Stripe URL; rejects invalid origin, empty cart, unknown SKU,
+  returns provider checkout URL; rejects invalid origin, empty cart, unknown SKU,
   insufficient stock
 - Stock reservation atomicity — concurrent checkouts for last item
 - CORS headers present on API responses
 
 **Webhook tests:**
-- Signature verification (reject invalid signatures)
-- `checkout.session.completed` — confirms reservations
-- `checkout.session.expired` — expires reservations
-- `charge.refunded` — restocks
+- Stock reservation confirmation on checkout completed
+- Stock release on checkout expired
+- Restock on refund
 - Idempotency — processing same event twice is safe
-- Unknown event types acknowledged without error
 
-**Admin tests:**
-- Unauthenticated requests redirect to login
-- Product CRUD operations
-- Orders page fetches from Stripe API
-- Password change
-- CSRF validation
+**Admin product tests:**
+- Product CRUD operations (both owner and manager)
+- SKU uniqueness validation
+- Available stock calculation
 
-**Setup tests:**
-- First-run shows setup page
-- After setup, normal routes work
-- Setup page not accessible after completion
+**Admin order tests:**
+- Orders page fetches from provider API (test with both Stripe and Square mocks)
+- Order detail retrieval
+- Pagination
 
 **Integration tests:**
 - Full flow: create product → checkout → webhook → stock confirmed
 - Full flow: create product → checkout → session expires → stock released
 - Full flow: checkout → pay → refund → stock restored
 
-Commit: "Add public API, Stripe checkout, webhooks, and admin"
+Existing tests for auth, users, settings, sessions should continue to pass.
+
+Commit: "Add public API, checkout, webhooks, and admin product/order management"
 
 ---
 
@@ -661,83 +668,173 @@ Commit: "Add public API, Stripe checkout, webhooks, and admin"
 
 | Aspect | Tickets App | Ecommerce Backend |
 |--------|-------------|-------------------|
-| Database tables | 8 | 4 (products, stock_reservations, settings, sessions) |
-| Encryption | AES-256 + hybrid PII encryption | None (no PII stored) |
-| Payment providers | Stripe + Square | Stripe only |
-| Customer data | Stored encrypted in attendees | Stored in Stripe only |
-| Order data | Stored in attendees + processed_payments | Stored in Stripe only |
-| Admin users | Multi-user with invites | Single admin |
+| Domain model | Events + attendees + tickets | Products + stock reservations |
+| Database tables | 8 | Same 6 existing + 2 new (products, stock_reservations) |
+| Encryption | AES-256 + hybrid encryption | Same (unchanged) |
+| Payment providers | Stripe + Square | Same (unchanged) |
+| Customer data | Stored encrypted in attendees | Stored in provider only (no local PII) |
+| Order data | Stored in attendees + processed_payments | Queried from provider API |
+| Admin users | Multi-user with owner/manager roles | Same (unchanged) |
 | Public UI | HTML ticket forms | JSON API (static site is the UI) |
 | CORS | Not needed (same-origin forms) | Required (cross-origin API) |
 | Stock/capacity | `max_attendees` with atomic check | `stock` with reservation system |
 | Webhooks | Confirm attendee creation | Confirm/expire stock reservations |
+| Config | Env vars + DB settings | Same model (DB settings via admin UI) |
+
+## What Changed vs What Stayed
+
+**Removed** (ticket-specific):
+- Events, attendees, tickets, check-in, QR codes, slugs, CSV export
+- Public ticket registration/display pages and templates
+- ~7,500 lines of ticket-specific code and tests
+
+**Added** (ecommerce):
+- Products table + CRUD
+- Stock reservations table + atomic reserve/confirm/expire
+- Public JSON API (`/api/products`, `/api/checkout`)
+- CORS middleware for cross-origin static site
+- Admin product management pages
+- Admin order viewing (via provider API)
+- Allowed origins setting in admin UI
+- `listSessions`/`searchOrders` on payment providers
+
+**Unchanged** (reusable infrastructure):
+- Multi-user auth (owner/manager roles, invite flow)
+- Encryption model (KEK, data keys, encrypted settings)
+- Session management (with data key wrapping)
+- Payment provider abstraction (Stripe + Square)
+- Login rate limiting
+- Activity logging
+- Admin framework (auth, users, settings, sessions routes + templates)
+- Setup flow
+- JSX templates, static assets, router, health check
+- FP utilities, DB client/table abstraction
+- Test infrastructure
 
 ## File Structure (Final)
 
+Files marked (**new**) are created. Files marked (**modified**) have changes.
+All other files are retained unchanged from the tickets app.
+
 ```
 src/
-├── index.ts                      # Entry point
+├── index.ts                      # Entry point (unchanged)
 ├── fp/index.ts                   # FP utilities (unchanged)
 ├── edge/bunny-script.ts          # Edge runtime compat (unchanged)
 ├── lib/
-│   ├── config.ts                 # Env var config
-│   ├── auth.ts                   # Password hashing + session management
-│   ├── stripe.ts                 # Stripe SDK wrapper
+│   ├── config.ts                 # Config (modified — add getAllowedOrigins)
+│   ├── crypto.ts                 # Encryption/hashing (unchanged)
+│   ├── payment-crypto.ts         # Payment crypto (unchanged)
+│   ├── payments.ts               # Provider interface (modified — add listSessions)
+│   ├── payment-helpers.ts        # Payment helpers (unchanged)
+│   ├── stripe.ts                 # Stripe SDK (modified — add sessions.list)
+│   ├── stripe-provider.ts        # Stripe provider (modified — add listSessions)
+│   ├── square.ts                 # Square SDK (modified — add searchOrders)
+│   ├── square-provider.ts        # Square provider (modified — add listSessions)
+│   ├── env.ts                    # Environment helpers (unchanged)
+│   ├── logger.ts                 # Logger (unchanged)
+│   ├── types.ts                  # Types (modified — add product/reservation types)
+│   ├── forms.tsx                 # Form validation (unchanged)
+│   ├── webhook.ts                # Webhook forwarding (unchanged)
 │   ├── db/
 │   │   ├── client.ts             # libsql wrapper (unchanged)
 │   │   ├── table.ts              # Table abstraction (unchanged)
-│   │   ├── migrations/index.ts   # Schema: products, stock_reservations, settings, sessions
-│   │   ├── products.ts           # Product CRUD + stock queries
-│   │   ├── reservations.ts       # Stock reservation operations
-│   │   ├── settings.ts           # Key-value settings
-│   │   └── sessions.ts           # Admin sessions
+│   │   ├── migrations/index.ts   # Migrations (modified — add products + reservations tables)
+│   │   ├── products.ts           # Product CRUD + stock queries (new)
+│   │   ├── reservations.ts       # Stock reservation operations (new)
+│   │   ├── settings.ts           # Encrypted settings (unchanged)
+│   │   ├── sessions.ts           # Session management (unchanged)
+│   │   ├── users.ts              # User management (unchanged)
+│   │   ├── login-attempts.ts     # Rate limiting (unchanged)
+│   │   ├── activityLog.ts        # Activity logging (unchanged)
+│   │   └── processed-payments.ts # Payment idempotency (unchanged)
+│   ├── rest/
+│   │   ├── handlers.ts           # REST handlers (unchanged)
+│   │   └── resource.ts           # REST resource (unchanged)
 │   └── jsx/
-│       ├── jsx-runtime.ts        # JSX runtime (for admin templates)
+│       ├── jsx-runtime.ts        # JSX runtime (unchanged)
 │       └── jsx-dev-runtime.ts
 ├── routes/
-│   ├── index.ts                  # Main router
+│   ├── index.ts                  # Main router (modified — add /api/* + CORS)
 │   ├── router.ts                 # Pattern matching router (unchanged)
-│   ├── middleware.ts             # CORS + security headers
-│   ├── health.ts                 # Health check
-│   ├── setup.ts                  # First-run setup
-│   ├── api.ts                    # Public API: products + checkout
-│   ├── webhook.ts                # Stripe webhooks
+│   ├── middleware.ts             # Middleware (modified — add CORS headers)
+│   ├── health.ts                 # Health check (unchanged)
+│   ├── setup.ts                  # Setup flow (unchanged)
+│   ├── static.ts                 # Static file serving (unchanged)
+│   ├── assets.ts                 # Asset handling (unchanged)
+│   ├── webhooks.ts               # Webhooks (modified — add reservation handling)
+│   ├── api.ts                    # Public API: products + checkout (new)
+│   ├── utils.ts                  # Route utilities (unchanged)
+│   ├── types.ts                  # Route types (unchanged)
 │   └── admin/
-│       ├── index.ts              # Admin router
-│       ├── auth.ts               # Login/logout
-│       ├── dashboard.ts          # Product list
-│       ├── products.ts           # Product CRUD
-│       ├── orders.ts             # Orders (proxied from Stripe)
-│       └── settings.ts           # Password change
+│       ├── index.ts              # Admin router (modified — add product/order routes)
+│       ├── auth.ts               # Login/logout (unchanged)
+│       ├── dashboard.ts          # Dashboard (modified — products instead of events)
+│       ├── products.ts           # Product CRUD (new)
+│       ├── orders.ts             # Orders from provider API (new)
+│       ├── users.ts              # User management (unchanged)
+│       ├── settings.ts           # Settings (modified — add allowed origins)
+│       ├── sessions.ts           # Session management (unchanged)
+│       └── utils.ts              # Admin utilities (unchanged)
 ├── templates/
-│   ├── layout.tsx                # Base HTML layout
+│   ├── layout.tsx                # Base HTML layout (unchanged)
+│   ├── setup.tsx                 # Setup form (unchanged)
+│   ├── fields.ts                 # Form field helpers (unchanged)
 │   └── admin/
-│       ├── login.tsx
-│       ├── dashboard.tsx
-│       ├── products.tsx
-│       ├── orders.tsx
-│       └── settings.tsx
-└── test-utils/
-    ├── test-compat.ts            # Jest-like API (unchanged)
-    ├── index.ts                  # Test helpers
-    └── stripe-mock.ts            # Stripe API mock
+│       ├── login.tsx             # Login form (unchanged)
+│       ├── nav.tsx               # Navigation (modified — add Products/Orders links)
+│       ├── dashboard.tsx         # Dashboard (modified — show products)
+│       ├── products.tsx          # Product form (new)
+│       ├── orders.tsx            # Order list/detail (new)
+│       ├── sessions.tsx          # Session list (unchanged)
+│       ├── settings.tsx          # Settings form (modified — add allowed origins)
+│       └── users.tsx             # User management (unchanged)
+├── static/
+│   ├── favicon.svg               # Favicon (unchanged)
+│   └── mvp.css                   # Stylesheet (unchanged)
+├── test-utils/
+│   ├── test-compat.ts            # Jest-like API (unchanged)
+│   ├── index.ts                  # Test helpers (modified — add product helpers)
+│   └── stripe-mock.ts            # Stripe mock (modified — add sessions.list mock)
+└── types/
+    └── static.d.ts               # Type declarations (unchanged)
 
 test/
-├── setup.ts
+├── setup.ts                      # Test setup (unchanged)
 └── lib/
-    ├── fp.test.ts
-    ├── config.test.ts
-    ├── auth.test.ts
-    ├── products.test.ts
-    ├── reservations.test.ts
-    ├── settings.test.ts
-    ├── stripe.test.ts
-    ├── api-products.test.ts
-    ├── api-checkout.test.ts
-    ├── webhook.test.ts
-    ├── admin-auth.test.ts
-    ├── admin-products.test.ts
-    ├── admin-orders.test.ts
-    ├── setup.test.ts
-    └── middleware.test.ts
+    ├── fp.test.ts                # (unchanged)
+    ├── config.test.ts            # (unchanged + new tests for getAllowedOrigins)
+    ├── crypto.test.ts            # (unchanged)
+    ├── env.test.ts               # (unchanged)
+    ├── forms.test.ts             # (unchanged)
+    ├── logger.test.ts            # (unchanged)
+    ├── db.test.ts                # (unchanged)
+    ├── jsx-runtime.test.ts       # (unchanged)
+    ├── rest.test.ts              # (unchanged)
+    ├── webhook.test.ts           # (unchanged)
+    ├── payment-crypto.test.ts    # (unchanged)
+    ├── payment-helpers.test.ts   # (unchanged)
+    ├── processed-payments.test.ts # (unchanged)
+    ├── stripe.test.ts            # (unchanged + new tests for list)
+    ├── stripe-mock.test.ts       # (unchanged)
+    ├── square.test.ts            # (unchanged + new tests for search)
+    ├── square-provider.test.ts   # (unchanged + new tests for listSessions)
+    ├── html.test.ts              # (unchanged)
+    ├── test-utils.test.ts        # (unchanged)
+    ├── build-edge.test.ts        # (unchanged)
+    ├── code-quality.test.ts      # (unchanged)
+    ├── server-auth.test.ts       # (unchanged)
+    ├── server-users.test.ts      # (unchanged)
+    ├── server-settings.test.ts   # (unchanged)
+    ├── server-setup.test.ts      # (unchanged)
+    ├── server-payments.test.ts   # (unchanged)
+    ├── server-webhooks.test.ts   # (unchanged + new reservation tests)
+    ├── server-misc.test.ts       # (unchanged)
+    ├── products.test.ts          # Product CRUD + stock (new)
+    ├── reservations.test.ts      # Reserve/confirm/expire (new)
+    ├── api-products.test.ts      # GET /api/products (new)
+    ├── api-checkout.test.ts      # POST /api/checkout (new)
+    ├── admin-products.test.ts    # Admin product CRUD (new)
+    ├── admin-orders.test.ts      # Admin order viewing (new)
+    └── middleware.test.ts        # CORS tests (new)
 ```

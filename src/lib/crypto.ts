@@ -78,10 +78,6 @@ export const generateSecureToken = (): string => {
   return toBase64Url(bytes);
 };
 
-/**
- * Generate an 8-byte base64url ticket token for public ticket URLs
- */
-export const generateTicketToken = (): string => toBase64Url(getRandomBytes(8));
 
 /**
  * Encryption format version prefix
@@ -814,20 +810,8 @@ export const decryptWithKey = async (
 };
 
 /**
- * Encrypt attendee PII using the public key from settings
- * This can be called without authentication (for public ticket forms)
- */
-export const encryptAttendeePII = async (
-  plaintext: string,
-  publicKeyJwk: string,
-): Promise<string> => {
-  const publicKey = await importPublicKey(publicKeyJwk);
-  return hybridEncrypt(plaintext, publicKey);
-};
-
-/**
  * Derive the private key from session credentials
- * Used to decrypt attendee PII in admin views
+ * Used to decrypt encrypted data in admin views
  */
 export const getPrivateKeyFromSession = async (
   sessionToken: string,
@@ -844,13 +828,3 @@ export const getPrivateKeyFromSession = async (
   return importPrivateKey(privateKeyJwk);
 };
 
-/**
- * Decrypt attendee PII using the private key
- * Used in admin views after obtaining private key from session
- */
-export const decryptAttendeePII = (
-  encrypted: string,
-  privateKey: CryptoKey,
-): Promise<string> => {
-  return hybridDecrypt(encrypted, privateKey);
-};
