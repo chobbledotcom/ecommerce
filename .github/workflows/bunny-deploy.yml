@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   deploy:
-    runs-on: ubicloud-standard-16
+    runs-on: ubicloud-standard-2
 
     steps:
       - name: Checkout repository
@@ -33,4 +33,4 @@ jobs:
         with:
           script_id: ${{ secrets.BUNNY_SCRIPT_ID }}
           file: "bunny-script.ts"
-          api_key: ${{ secrets.BUNNY_ACCESS_KEY }}
+          deploy_key: ${{ secrets.BUNNY_DEPLOY_KEY }}
