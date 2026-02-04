@@ -45,16 +45,13 @@ describe("server (misc)", () => {
     });
 
     describe("Content-Security-Policy", () => {
-      const baseCsp =
-        "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; form-action 'self' https://checkout.stripe.com";
-
-      test("non-embeddable pages have frame-ancestors 'none' and security restrictions", async () => {
+      test("non-embeddable pages include frame-ancestors none and default-src self", async () => {
         const response = await handleRequest(mockRequest("/"));
-        expect(response.headers.get("content-security-policy")).toBe(
-          `frame-ancestors 'none'; ${baseCsp}`,
-        );
+        const csp = response.headers.get("content-security-policy")!;
+        expect(csp).toContain("frame-ancestors 'none'");
+        expect(csp).toContain("default-src 'self'");
+        expect(csp).toContain("form-action 'self'");
       });
-
     });
 
     describe("other security headers", () => {

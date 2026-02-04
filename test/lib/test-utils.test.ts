@@ -729,9 +729,13 @@ describe("test-compat", () => {
 
 // Standalone test outside any describe block to exercise
 // getCurrentContext's contextStack fallback ?? {} (test-compat.ts line 38)
-test("test registered outside describe exercises empty context stack fallback", () => {
+test("test registered outside describe runs successfully without a parent context", () => {
   // When test() is called outside any describe block, contextStack is empty.
   // getCurrentContext returns contextStack[contextStack.length - 1] ?? {}
   // which triggers the ?? {} fallback since contextStack[-1] is undefined.
-  expect(1 + 1).toBe(2);
+  // Verify the test framework itself works in this scenario by asserting
+  // that core assertions function correctly outside a describe block.
+  const arr = [1, 2, 3];
+  expect(arr).toHaveLength(3);
+  expect(arr).toContain(2);
 });

@@ -6,6 +6,16 @@ import {
   renderFields,
 } from "#lib/forms.tsx";
 import {
+  parseChangePassword,
+  parseCurrencyForm,
+  parseInviteUserForm,
+  parseJoinForm,
+  parseLoginCredentials,
+  parseProductForm,
+  parseSetupForm,
+  parseSquareTokenForm,
+  parseSquareWebhookForm,
+  parseStripeKeyForm,
   validatePhone,
 } from "#templates/fields.ts";
 import {
@@ -13,6 +23,9 @@ import {
   expectInvalidForm,
   expectValid,
 } from "#test-utils";
+
+/** Helper: create URLSearchParams from an object */
+const params = (data: Record<string, string>) => new URLSearchParams(data);
 
 /** Helper: build a Field definition with minimal boilerplate. */
 const field = (
@@ -244,6 +257,264 @@ describe("forms", () => {
       };
       const html = renderField(fieldsSelect);
       expect(html).toContain("Which contact details to collect");
+    });
+  });
+
+  describe("typed form parsers", () => {
+    describe("parseLoginCredentials", () => {
+      test("returns typed credentials from valid form", () => {
+        const result = parseLoginCredentials(params({ username: "admin", password: "secret123" }));
+        expect(result.valid).toBe(true);
+        if (result.valid) {
+          expect(result.username).toBe("admin");
+          expect(result.password).toBe("secret123");
+        }
+      });
+
+      test("rejects empty username", () => {
+        const result = parseLoginCredentials(params({ username: "", password: "secret123" }));
+        expect(result.valid).toBe(false);
+      });
+
+      test("rejects empty password", () => {
+        const result = parseLoginCredentials(params({ username: "admin", password: "" }));
+        expect(result.valid).toBe(false);
+      });
+    });
+
+    describe("parseSetupForm", () => {
+      const validSetup = {
+        admin_username: "admin",
+        admin_password: "password123",
+        admin_password_confirm: "password123",
+        currency_code: "USD",
+      };
+
+      test("returns typed setup data from valid form", () => {
+        const result = parseSetupForm(params(validSetup));
+        expect(result.valid).toBe(true);
+        if (result.valid) {
+          expect(result.username).toBe("admin");
+          expect(result.password).toBe("password123");
+          expect(result.currency).toBe("USD");
+        }
+      });
+
+      test("defaults currency to GBP when empty", () => {
+        const result = parseSetupForm(params({ ...validSetup, currency_code: "" }));
+        expect(result.valid).toBe(true);
+        if (result.valid) expect(result.currency).toBe("GBP");
+      });
+
+      test("uppercases currency code", () => {
+        const result = parseSetupForm(params({ ...validSetup, currency_code: "eur" }));
+        expect(result.valid).toBe(true);
+        if (result.valid) expect(result.currency).toBe("EUR");
+      });
+
+      test("rejects password shorter than minimum length", () => {
+        const result = parseSetupForm(params({
+          ...validSetup,
+          admin_password: "short",
+          admin_password_confirm: "short",
+        }));
+        expect(result.valid).toBe(false);
+        if (!result.valid) expect(result.error).toContain("at least");
+      });
+
+      test("rejects mismatched passwords", () => {
+        const result = parseSetupForm(params({
+          ...validSetup,
+          admin_password_confirm: "different123",
+        }));
+        expect(result.valid).toBe(false);
+        if (!result.valid) expect(result.error).toContain("do not match");
+      });
+
+      test("rejects invalid currency code", () => {
+        const result = parseSetupForm(params({ ...validSetup, currency_code: "ABCD" }));
+        expect(result.valid).toBe(false);
+        if (!result.valid) expect(result.error).toContain("Currency code");
+      });
+    });
+
+    describe("parseJoinForm", () => {
+      test("returns password from valid form", () => {
+        const result = parseJoinForm(params({
+          password: "newpassword1",
+          password_confirm: "newpassword1",
+        }));
+        expect(result.valid).toBe(true);
+        if (result.valid) expect(result.password).toBe("newpassword1");
+      });
+
+      test("rejects short password", () => {
+        const result = parseJoinForm(params({ password: "short", password_confirm: "short" }));
+        expect(result.valid).toBe(false);
+      });
+
+      test("rejects mismatched passwords", () => {
+        const result = parseJoinForm(params({
+          password: "password123",
+          password_confirm: "password456",
+        }));
+        expect(result.valid).toBe(false);
+        if (!result.valid) expect(result.error).toContain("do not match");
+      });
+    });
+
+    describe("parseChangePassword", () => {
+      test("returns current and new password from valid form", () => {
+        const result = parseChangePassword(params({
+          current_password: "oldpass123",
+          new_password: "newpass123",
+          new_password_confirm: "newpass123",
+        }));
+        expect(result.valid).toBe(true);
+        if (result.valid) {
+          expect(result.currentPassword).toBe("oldpass123");
+          expect(result.newPassword).toBe("newpass123");
+        }
+      });
+
+      test("rejects short new password", () => {
+        const result = parseChangePassword(params({
+          current_password: "oldpass123",
+          new_password: "short",
+          new_password_confirm: "short",
+        }));
+        expect(result.valid).toBe(false);
+        if (!result.valid) expect(result.error).toContain("New password");
+      });
+    });
+
+    describe("parseProductForm", () => {
+      test("returns typed product data from valid form", () => {
+        const result = parseProductForm(params({
+          name: "Widget",
+          sku: "WIDGET-01",
+          description: "A widget",
+          unit_price: "1500",
+          stock: "10",
+          active: "1",
+        }));
+        expect(result.valid).toBe(true);
+        if (result.valid) {
+          expect(result.name).toBe("Widget");
+          expect(result.sku).toBe("WIDGET-01");
+          expect(result.description).toBe("A widget");
+          expect(result.unitPrice).toBe(1500);
+          expect(result.stock).toBe(10);
+          expect(result.active).toBe(1);
+        }
+      });
+
+      test("defaults active to 1 when not provided", () => {
+        const result = parseProductForm(params({
+          name: "Widget",
+          sku: "WIDGET-01",
+          description: "",
+          unit_price: "1500",
+          stock: "10",
+        }));
+        expect(result.valid).toBe(true);
+        if (result.valid) expect(result.active).toBe(1);
+      });
+
+      test("rejects missing required sku", () => {
+        const result = parseProductForm(params({
+          name: "Widget",
+          sku: "",
+          unit_price: "1500",
+          stock: "10",
+        }));
+        expect(result.valid).toBe(false);
+      });
+    });
+
+    describe("parseInviteUserForm", () => {
+      test("returns typed invite data for manager role", () => {
+        const result = parseInviteUserForm(params({ username: "newuser", admin_level: "manager" }));
+        expect(result.valid).toBe(true);
+        if (result.valid) {
+          expect(result.username).toBe("newuser");
+          expect(result.adminLevel).toBe("manager");
+        }
+      });
+
+      test("accepts owner role", () => {
+        const result = parseInviteUserForm(params({ username: "newuser", admin_level: "owner" }));
+        expect(result.valid).toBe(true);
+        if (result.valid) expect(result.adminLevel).toBe("owner");
+      });
+
+      test("rejects invalid role", () => {
+        const result = parseInviteUserForm(params({ username: "newuser", admin_level: "superadmin" }));
+        expect(result.valid).toBe(false);
+        if (!result.valid) expect(result.error).toBe("Invalid role");
+      });
+    });
+
+    describe("parseStripeKeyForm", () => {
+      test("returns stripe key from valid form", () => {
+        const result = parseStripeKeyForm(params({ stripe_secret_key: "sk_test_123" }));
+        expect(result.valid).toBe(true);
+        if (result.valid) expect(result.stripeSecretKey).toBe("sk_test_123");
+      });
+
+      test("rejects empty key", () => {
+        const result = parseStripeKeyForm(params({ stripe_secret_key: "" }));
+        expect(result.valid).toBe(false);
+      });
+    });
+
+    describe("parseSquareTokenForm", () => {
+      test("returns access token and location ID from valid form", () => {
+        const result = parseSquareTokenForm(params({
+          square_access_token: "EAAAl_test",
+          square_location_id: "L_test",
+        }));
+        expect(result.valid).toBe(true);
+        if (result.valid) {
+          expect(result.accessToken).toBe("EAAAl_test");
+          expect(result.locationId).toBe("L_test");
+        }
+      });
+
+      test("rejects missing location ID", () => {
+        const result = parseSquareTokenForm(params({
+          square_access_token: "EAAAl_test",
+          square_location_id: "",
+        }));
+        expect(result.valid).toBe(false);
+      });
+    });
+
+    describe("parseSquareWebhookForm", () => {
+      test("returns signature key from valid form", () => {
+        const result = parseSquareWebhookForm(params({ square_webhook_signature_key: "sig_key" }));
+        expect(result.valid).toBe(true);
+        if (result.valid) expect(result.signatureKey).toBe("sig_key");
+      });
+    });
+
+    describe("parseCurrencyForm", () => {
+      test("returns uppercased currency code from valid form", () => {
+        const result = parseCurrencyForm(params({ currency_code: "eur" }));
+        expect(result.valid).toBe(true);
+        if (result.valid) expect(result.currencyCode).toBe("EUR");
+      });
+
+      test("rejects invalid currency code", () => {
+        const result = parseCurrencyForm(params({ currency_code: "1234" }));
+        expect(result.valid).toBe(false);
+        if (!result.valid) expect(result.error).toContain("Currency code");
+      });
+
+      test("rejects empty currency code", () => {
+        const result = parseCurrencyForm(params({ currency_code: "" }));
+        expect(result.valid).toBe(false);
+      });
     });
   });
 

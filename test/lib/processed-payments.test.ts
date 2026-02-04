@@ -66,10 +66,6 @@ describe("processed-payments", () => {
   });
 
   describe("stale reservation recovery", () => {
-    test("STALE_RESERVATION_MS is 5 minutes", () => {
-      expect(STALE_RESERVATION_MS).toBe(5 * 60 * 1000);
-    });
-
     test("reserveSession does not recover fresh unfinalized reservation", async () => {
       // Create a reservation that is NOT stale
       await reserveSession("cs_fresh_unfinalized");

@@ -282,13 +282,15 @@ export const joinFields: Field[] = [
  * Validate a password + confirmation pair.
  * Returns error string or null on success.
  */
+const MIN_PASSWORD_LENGTH = 8;
+
 const checkPasswords = (
   password: string,
   confirm: string,
   label = "Password",
   pluralLabel = "Passwords",
 ): string | null => {
-  if (password.length < 8) return `${label} must be at least 8 characters`;
+  if (password.length < MIN_PASSWORD_LENGTH) return `${label} must be at least ${MIN_PASSWORD_LENGTH} characters`;
   if (password !== confirm) return `${pluralLabel} do not match`;
   return null;
 };

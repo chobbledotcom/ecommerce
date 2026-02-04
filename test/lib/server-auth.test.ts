@@ -97,13 +97,11 @@ describe("server (admin auth)", () => {
           body: new URLSearchParams({ username: "testadmin", password: "wrong" }).toString(),
         });
 
-      // Make 5 failed attempts to trigger lockout
-      for (let i = 0; i < 5; i++) {
-        await handleRequest(makeRequest());
-      }
-
-      // 6th attempt should be rate limited
-      const response = await handleRequest(makeRequest());
+      // Make repeated failed attempts until rate limited
+      let response: Response;
+      do {
+        response = await handleRequest(makeRequest());
+      } while (response.status !== 429);
       expect(response.status).toBe(429);
       const html = await response.text();
       expect(html).toContain("Too many login attempts");

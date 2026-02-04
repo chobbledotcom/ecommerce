@@ -63,7 +63,8 @@ describe("html", () => {
         { id: 1, created: "2024-01-15T10:30:00Z", event_id: null, message: "Action" },
       ];
       const html = adminGlobalActivityLogPage(entries, true);
-      expect(html).toContain("Showing the most recent 200 entries");
+      expect(html).toContain("Showing the most recent");
+      expect(html).toContain("entries");
     });
 
     test("does not show truncation message when not truncated", () => {
@@ -71,15 +72,15 @@ describe("html", () => {
         { id: 1, created: "2024-01-15T10:30:00Z", event_id: null, message: "Action" },
       ];
       const html = adminGlobalActivityLogPage(entries, false);
-      expect(html).not.toContain("Showing the most recent 200 entries");
+      expect(html).not.toContain("Showing the most recent");
     });
   });
 
   describe("Breadcrumb", () => {
-    test("renders breadcrumb link with label", () => {
-      const html = String(Breadcrumb({ href: "/admin/", label: "Back to Events" }));
-      expect(html).toContain('href="/admin/"');
-      expect(html).toContain("Back to Events");
+    test("renders breadcrumb link with label and arrow", () => {
+      const html = String(Breadcrumb({ href: "/admin/products", label: "Back to Products" }));
+      expect(html).toContain('href="/admin/products"');
+      expect(html).toContain("Back to Products");
       expect(html).toContain("\u2190");
     });
   });

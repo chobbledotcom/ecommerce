@@ -173,14 +173,31 @@ describe("logger", () => {
     });
   });
 
-  describe("ErrorCode constants", () => {
-    test("has expected error codes", () => {
-      expect(ErrorCode.DB_CONNECTION).toBe("E_DB_CONNECTION");
-      expect(ErrorCode.CAPACITY_EXCEEDED).toBe("E_CAPACITY_EXCEEDED");
-      expect(ErrorCode.DECRYPT_FAILED).toBe("E_DECRYPT_FAILED");
-      expect(ErrorCode.AUTH_CSRF_MISMATCH).toBe("E_AUTH_CSRF_MISMATCH");
-      expect(ErrorCode.STRIPE_SIGNATURE).toBe("E_STRIPE_SIGNATURE");
-      expect(ErrorCode.WEBHOOK_SEND).toBe("E_WEBHOOK_SEND");
+  describe("ErrorCode usage", () => {
+    let errorSpy: ReturnType<typeof spyOn>;
+
+    beforeEach(() => {
+      errorSpy = spyOn(console, "error");
+    });
+
+    afterEach(() => {
+      errorSpy.mockRestore();
+    });
+
+    test("all error codes produce correctly prefixed log output", () => {
+      for (const key of Object.keys(ErrorCode)) {
+        const code = ErrorCode[key as keyof typeof ErrorCode];
+        logError({ code });
+        expect(errorSpy).toHaveBeenCalledWith(`[Error] ${code}`);
+        errorSpy.mockClear();
+      }
+    });
+
+    test("error codes start with E_ prefix", () => {
+      for (const key of Object.keys(ErrorCode)) {
+        const code = ErrorCode[key as keyof typeof ErrorCode];
+        expect(code.startsWith("E_")).toBe(true);
+      }
     });
   });
 });

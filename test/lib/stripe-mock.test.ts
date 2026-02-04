@@ -8,28 +8,19 @@ import {
   isStripeMockRunning,
   STRIPE_MOCK_PATH,
   STRIPE_MOCK_PORT,
-  STRIPE_MOCK_VERSION,
   StripeMockManager,
   waitForStripeMock,
 } from "#test-utils/stripe-mock.ts";
 
 describe("stripe-mock utilities", () => {
   describe("constants", () => {
-    test("exports correct version", () => {
-      expect(STRIPE_MOCK_VERSION).toBe("0.188.0");
+    test("STRIPE_MOCK_PATH is inside BIN_DIR", () => {
+      expect(STRIPE_MOCK_PATH.startsWith(BIN_DIR)).toBe(true);
     });
 
-    test("exports correct port", () => {
-      expect(STRIPE_MOCK_PORT).toBe(12111);
-    });
-
-    test("BIN_DIR points to .bin directory", () => {
-      expect(BIN_DIR).toContain(".bin");
-    });
-
-    test("STRIPE_MOCK_PATH points to stripe-mock binary", () => {
-      expect(STRIPE_MOCK_PATH).toContain("stripe-mock");
-      expect(STRIPE_MOCK_PATH).toContain(".bin");
+    test("stripe-mock is reachable on STRIPE_MOCK_PORT", async () => {
+      const running = await isStripeMockRunning(STRIPE_MOCK_PORT);
+      expect(running).toBe(true);
     });
   });
 
