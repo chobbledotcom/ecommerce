@@ -52,6 +52,13 @@ export const stripePaymentProvider: PaymentProvider = {
   type: "stripe" as PaymentProviderType,
 
   checkoutCompletedEventType: "checkout.session.completed",
+  checkoutExpiredEventType: "checkout.session.expired",
+  refundEventType: "charge.refunded",
+
+  getRefundReference(event: WebhookEvent): string | null {
+    const obj = event.data.object as { payment_intent?: string };
+    return obj.payment_intent ?? null;
+  },
 
   async verifyWebhookSignature(
     payload: string,

@@ -129,8 +129,8 @@ const handlePaymentWebhook = async (request: Request): Promise<Response> => {
     return webhookAckResponse({ processed: true, confirmed });
   }
 
-  // Handle checkout expired (Stripe: checkout.session.expired)
-  if (event.type === "checkout.session.expired") {
+  // Handle checkout expired
+  if (provider.checkoutExpiredEventType && event.type === provider.checkoutExpiredEventType) {
     const sessionId = getSessionId(event);
     if (!sessionId) return webhookAckResponse();
 
@@ -139,14 +139,13 @@ const handlePaymentWebhook = async (request: Request): Promise<Response> => {
     return webhookAckResponse({ processed: true, expired });
   }
 
-  // Handle refund (Stripe: charge.refunded)
-  if (event.type === "charge.refunded") {
-    const obj = event.data.object as { payment_intent?: string };
-    const paymentIntent = obj.payment_intent;
-    if (!paymentIntent) return webhookAckResponse();
+  // Handle refund
+  if (provider.refundEventType && event.type === provider.refundEventType) {
+    const refundReference = provider.getRefundReference(event);
+    if (!refundReference) return webhookAckResponse();
 
-    const restocked = await restockFromRefund(paymentIntent);
-    logDebug("Webhook", `Restocked ${restocked} reservations for refund ${paymentIntent}`);
+    const restocked = await restockFromRefund(refundReference);
+    logDebug("Webhook", `Restocked ${restocked} reservations for refund ${refundReference}`);
     return webhookAckResponse({ processed: true, restocked });
   }
 

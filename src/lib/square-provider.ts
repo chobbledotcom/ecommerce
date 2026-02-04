@@ -20,6 +20,7 @@ import type {
   PaymentProvider,
   PaymentProviderType,
   PaymentSessionListResult,
+  WebhookEvent,
   WebhookSetupResult,
   WebhookVerifyResult,
 } from "#lib/payments.ts";
@@ -48,6 +49,13 @@ export const squarePaymentProvider: PaymentProvider = {
   type: "square" as PaymentProviderType,
 
   checkoutCompletedEventType: "payment.updated",
+  checkoutExpiredEventType: "order.updated", // Square notifies via order status change
+  refundEventType: "refund.updated",
+
+  getRefundReference(event: WebhookEvent): string | null {
+    const obj = event.data.object as { payment_id?: string; id?: string };
+    return obj.payment_id ?? obj.id ?? null;
+  },
 
   verifyWebhookSignature(
     payload: string,

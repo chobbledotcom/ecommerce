@@ -103,6 +103,18 @@ export interface PaymentProvider {
   /** The webhook event type name that indicates a completed checkout */
   readonly checkoutCompletedEventType: string;
 
+  /** The webhook event type for an expired/cancelled checkout (null if unsupported) */
+  readonly checkoutExpiredEventType: string | null;
+
+  /** The webhook event type for a refund (null if unsupported) */
+  readonly refundEventType: string | null;
+
+  /**
+   * Extract the refund reference (e.g. payment intent ID) from a refund webhook event.
+   * Returns null if the reference cannot be extracted.
+   */
+  getRefundReference(event: WebhookEvent): string | null;
+
   /**
    * Create a checkout session with line items.
    * Returns the provider's session ID and a redirect URL for the customer.

@@ -8,7 +8,7 @@
 import { map } from "#fp";
 import { getCurrencyCode } from "#lib/config.ts";
 import { getProductsBySkus, getProductsWithAvailableStock } from "#lib/db/products.ts";
-import { expireReservation, reserveStock } from "#lib/db/reservations.ts";
+import { expireReservation, type ReservationItem, reserveStockBatch, updateReservationSessionId } from "#lib/db/reservations.ts";
 import { ErrorCode, logError } from "#lib/logger.ts";
 import { getActivePaymentProvider } from "#lib/payments.ts";
 import type { Product } from "#lib/types.ts";
@@ -121,24 +121,21 @@ const handlePostCheckout = async (request: Request): Promise<Response> => {
     }
   }
 
-  // Reserve stock for each item (use a temp session ID, update after provider session creation)
+  // Reserve stock for all items in a single transaction (expires stale reservations first)
   const tempSessionId = crypto.randomUUID();
-  const reservationIds: number[] = [];
-
-  for (const item of items) {
+  const reservationItems: ReservationItem[] = map((item: CartItem) => {
     const product = productBySku.get(item.sku)!;
-    const reservationId = await reserveStock(product.id, item.quantity, tempSessionId);
-    if (!reservationId) {
-      // Insufficient stock — release all previous reservations
-      if (reservationIds.length > 0) {
-        await expireReservation(tempSessionId);
-      }
-      return jsonResponse({
-        error: "Insufficient stock",
-        details: [{ sku: item.sku, requested: item.quantity }],
-      }, 409);
-    }
-    reservationIds.push(reservationId);
+    return { productId: product.id, quantity: item.quantity };
+  })(items);
+  const skuByProductId = new Map(map((p: Product) => [p.id, p.sku] as const)(products));
+
+  const reservation = await reserveStockBatch(reservationItems, skuByProductId, tempSessionId);
+  if (!reservation.ok) {
+    const failedItem = items.find((i) => i.sku === reservation.failedSku);
+    return jsonResponse({
+      error: "Insufficient stock",
+      details: [{ sku: reservation.failedSku, requested: failedItem?.quantity ?? 0 }],
+    }, 409);
   }
 
   // Create provider checkout session
@@ -152,7 +149,7 @@ const handlePostCheckout = async (request: Request): Promise<Response> => {
         quantity: item.quantity,
       };
     })(items),
-    metadata: { reservation_ids: reservationIds.join(",") },
+    metadata: { reservation_ids: reservation.reservationIds.join(",") },
     successUrl,
     cancelUrl,
     currency: currency.toLowerCase(),
@@ -166,11 +163,7 @@ const handlePostCheckout = async (request: Request): Promise<Response> => {
   }
 
   // Update reservations with the real provider session ID
-  const { getDb } = await import("#lib/db/client.ts");
-  await getDb().execute({
-    sql: "UPDATE stock_reservations SET provider_session_id = ? WHERE provider_session_id = ?",
-    args: [result.sessionId, tempSessionId],
-  });
+  await updateReservationSessionId(tempSessionId, result.sessionId);
 
   return jsonResponse({ url: result.checkoutUrl });
 };

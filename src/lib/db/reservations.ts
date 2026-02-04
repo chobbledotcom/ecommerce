@@ -76,15 +76,15 @@ export const reserveStock = async (
   return Number(result.lastInsertRowid);
 };
 
-/** Transition reservations matching a WHERE clause to a new status. */
-const transitionStatus = async (
+/** Transition reservations by provider session ID from one status to another. */
+const transitionBySession = async (
   newStatus: ReservationStatus,
-  whereClause: string,
-  args: (string | number)[],
+  requiredStatus: ReservationStatus,
+  providerSessionId: string,
 ): Promise<number> => {
   const result = await getDb().execute({
-    sql: `UPDATE stock_reservations SET status = '${newStatus}' WHERE ${whereClause}`,
-    args,
+    sql: `UPDATE stock_reservations SET status = ? WHERE provider_session_id = ? AND status = ?`,
+    args: [newStatus, providerSessionId, requiredStatus],
   });
   return result.rowsAffected;
 };
@@ -97,7 +97,7 @@ const transitionStatus = async (
 export const confirmReservation = (
   providerSessionId: string,
 ): Promise<number> =>
-  transitionStatus("confirmed", "provider_session_id = ? AND status = 'pending'", [providerSessionId]);
+  transitionBySession("confirmed", "pending", providerSessionId);
 
 /**
  * Expire reservations for a cancelled/expired checkout session.
@@ -107,17 +107,21 @@ export const confirmReservation = (
 export const expireReservation = (
   providerSessionId: string,
 ): Promise<number> =>
-  transitionStatus("expired", "provider_session_id = ? AND status = 'pending'", [providerSessionId]);
+  transitionBySession("expired", "pending", providerSessionId);
 
 /**
  * Expire stale pending reservations older than maxAgeMs milliseconds.
  * Returns the number of reservations expired.
  */
-export const expireStaleReservations = (
+export const expireStaleReservations = async (
   maxAgeMs: number,
 ): Promise<number> => {
   const cutoff = new Date(Date.now() - maxAgeMs).toISOString();
-  return transitionStatus("expired", "status = 'pending' AND created < ?", [cutoff]);
+  const result = await getDb().execute({
+    sql: `UPDATE stock_reservations SET status = ? WHERE status = ? AND created < ?`,
+    args: ["expired", "pending", cutoff],
+  });
+  return result.rowsAffected;
 };
 
 /**
@@ -128,7 +132,109 @@ export const expireStaleReservations = (
 export const restockFromRefund = (
   providerSessionId: string,
 ): Promise<number> =>
-  transitionStatus("expired", "provider_session_id = ? AND status = 'confirmed'", [providerSessionId]);
+  transitionBySession("expired", "confirmed", providerSessionId);
+
+/** How long a pending reservation can sit before being considered stale */
+const STALE_RESERVATION_MS = 30 * 60 * 1000; // 30 minutes
+
+/** Item to reserve in a batch checkout */
+export type ReservationItem = {
+  productId: number;
+  quantity: number;
+};
+
+/**
+ * Reserve stock for multiple items in a single atomic write batch.
+ * Uses batch("write") so no concurrent writes can interleave between
+ * the stock availability checks and the inserts.
+ * Expires stale reservations first to reclaim abandoned stock.
+ *
+ * If any item has insufficient stock, successfully reserved items are
+ * expired and the first failing SKU is returned.
+ */
+export const reserveStockBatch = async (
+  items: ReservationItem[],
+  skuByProductId: Map<number, string>,
+  providerSessionId: string,
+): Promise<{ ok: true; reservationIds: number[] } | { ok: false; failedSku: string }> => {
+  const cutoff = new Date(Date.now() - STALE_RESERVATION_MS).toISOString();
+  const now = new Date().toISOString();
+
+  const reserveInsert = (item: ReservationItem) => ({
+    sql: `INSERT INTO stock_reservations (product_id, quantity, provider_session_id, status, created)
+          SELECT ?, ?, ?, 'pending', ?
+          WHERE (
+            SELECT stock FROM products WHERE id = ? AND active = 1
+          ) = -1
+          OR (
+            SELECT stock FROM products WHERE id = ? AND active = 1
+          ) - COALESCE((
+            SELECT SUM(quantity) FROM stock_reservations
+            WHERE product_id = ? AND status IN ('pending', 'confirmed')
+          ), 0) >= ?`,
+    args: [
+      item.productId,
+      item.quantity,
+      providerSessionId,
+      now,
+      item.productId,
+      item.productId,
+      item.productId,
+      item.quantity,
+    ] as (string | number)[],
+  });
+
+  // Atomic batch: expire stale reservations then insert all new ones
+  const results = await getDb().batch(
+    [
+      {
+        sql: `UPDATE stock_reservations SET status = ? WHERE status = ? AND created < ?`,
+        args: ["expired" as string | number, "pending", cutoff],
+      },
+      ...items.map(reserveInsert),
+    ],
+    "write",
+  );
+
+  // results[0] is the stale expiry; results[1..] are the inserts
+  const insertResults = results.slice(1);
+  const reservationIds: number[] = [];
+  let failedIndex = -1;
+
+  for (let i = 0; i < insertResults.length; i++) {
+    const result = insertResults[i]!;
+    if (result.rowsAffected === 0) {
+      failedIndex = i;
+      break;
+    }
+    reservationIds.push(Number(result.lastInsertRowid));
+  }
+
+  if (failedIndex !== -1) {
+    // Clean up any reservations that did succeed in this batch
+    if (reservationIds.length > 0) {
+      await expireReservation(providerSessionId);
+    }
+    const failedProductId = items[failedIndex]!.productId;
+    return { ok: false, failedSku: skuByProductId.get(failedProductId) ?? "" };
+  }
+
+  return { ok: true, reservationIds };
+};
+
+/**
+ * Update the provider session ID on reservations (e.g. after provider session creation).
+ * Runs as a simple execute since atomicity with the reservation is not required.
+ */
+export const updateReservationSessionId = async (
+  oldSessionId: string,
+  newSessionId: string,
+): Promise<void> => {
+  await getDb().execute({
+    sql: "UPDATE stock_reservations SET provider_session_id = ? WHERE provider_session_id = ?",
+    args: [newSessionId, oldSessionId],
+  });
+};
 
 /**
  * Get all reservations for a provider session ID.
