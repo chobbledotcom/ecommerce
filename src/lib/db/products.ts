@@ -79,7 +79,8 @@ export const getAvailableStock = async (
     [productId],
   );
 
-  return Math.max(0, product.stock - (reserved?.total ?? 0));
+  // Aggregate with COALESCE always returns a row, so reserved is never null
+  return Math.max(0, product.stock - reserved!.total);
 };
 
 /** Product with computed available stock */
