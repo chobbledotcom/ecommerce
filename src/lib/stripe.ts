@@ -132,6 +132,7 @@ export const stripeApi: {
   retrieveCheckoutSessionExpanded: (sessionId: string) => Promise<Stripe.Checkout.Session | null>;
   listCheckoutSessions: (params: { limit: number; startingAfter?: string }) => Promise<StripeSessionListResult | null>;
   refundPayment: (intentId: string) => Promise<Stripe.Refund | null>;
+  lookupSessionByPaymentIntent: (paymentIntentId: string) => Promise<string | null>;
   setupWebhookEndpoint: (
     secretKey: string,
     webhookUrl: string,
@@ -222,6 +223,19 @@ export const stripeApi: {
     withClient(
       (s) => s.refunds.create({ payment_intent: intentId }),
       ErrorCode.STRIPE_REFUND,
+    ),
+
+  /** Look up checkout session ID by payment intent (for refund webhook handling) */
+  lookupSessionByPaymentIntent: (paymentIntentId: string): Promise<string | null> =>
+    withClient(
+      async (s) => {
+        const sessions = await s.checkout.sessions.list({
+          payment_intent: paymentIntentId,
+          limit: 1,
+        });
+        return sessions.data[0]?.id ?? null;
+      },
+      ErrorCode.STRIPE_SESSION,
     ),
 
   /** Test Stripe connection: verify API key and webhook endpoint */
@@ -322,7 +336,11 @@ const setupWebhookEndpointImpl = async (
     // Create new webhook endpoint
     const endpoint = await client.webhookEndpoints.create({
       url: webhookUrl,
-      enabled_events: ["checkout.session.completed"],
+      enabled_events: [
+        "checkout.session.completed",
+        "checkout.session.expired",
+        "charge.refunded",
+      ],
     });
 
     if (!endpoint.secret) {
@@ -371,6 +389,7 @@ export const retrieveCheckoutSessionExpanded = (sessionId: string) =>
 export const listCheckoutSessions = (params: { limit: number; startingAfter?: string }) =>
   stripeApi.listCheckoutSessions(params);
 export const refundPayment = (id: string) => stripeApi.refundPayment(id);
+export const lookupSessionByPaymentIntent = (id: string) => stripeApi.lookupSessionByPaymentIntent(id);
 export const testStripeConnection = () => stripeApi.testStripeConnection();
 
 /**

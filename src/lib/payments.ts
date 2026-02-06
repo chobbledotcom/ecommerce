@@ -114,10 +114,11 @@ export interface PaymentProvider {
   readonly refundEventType: string | null;
 
   /**
-   * Extract the refund reference (e.g. payment intent ID) from a refund webhook event.
-   * Returns null if the reference cannot be extracted.
+   * Resolve the provider session ID from a refund webhook event.
+   * For Stripe this looks up the checkout session by payment intent.
+   * Returns the session ID used in stock reservations, or null.
    */
-  getRefundReference(event: WebhookEvent): string | null;
+  getRefundReference(event: WebhookEvent): Promise<string | null>;
 
   /**
    * Create a checkout session with line items.

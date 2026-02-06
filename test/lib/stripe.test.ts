@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, test, spyOn } from "#test-comp
 import {
   constructTestWebhookEvent,
   getStripeClient,
+  lookupSessionByPaymentIntent,
   refundPayment,
   resetStripeClient,
   sanitizeErrorDetail,
@@ -133,6 +134,65 @@ describe("stripe", () => {
           const result = await refundPayment("pi_test_123");
           expect(result).toBeNull();
           expect(refundSpy).toHaveBeenCalled();
+        },
+      );
+    });
+  });
+
+  describe("lookupSessionByPaymentIntent", () => {
+    test("returns null when stripe key not set", async () => {
+      const result = await lookupSessionByPaymentIntent("pi_test_123");
+      expect(result).toBeNull();
+    });
+
+    test("returns session ID when sessions found", async () => {
+      await updateStripeKey("sk_test_mock");
+      const client = await getStripeClient();
+      if (!client) throw new Error("Expected client to be defined");
+
+      await withMocks(
+        () => spyOn(client.checkout.sessions, "list").mockResolvedValue({
+          data: [{ id: "cs_test_found_123" }],
+          has_more: false,
+          object: "list",
+          url: "",
+        } as never),
+        async () => {
+          const result = await lookupSessionByPaymentIntent("pi_test_123");
+          expect(result).toBe("cs_test_found_123");
+        },
+      );
+    });
+
+    test("returns null when no sessions match", async () => {
+      await updateStripeKey("sk_test_mock");
+      const client = await getStripeClient();
+      if (!client) throw new Error("Expected client to be defined");
+
+      await withMocks(
+        () => spyOn(client.checkout.sessions, "list").mockResolvedValue({
+          data: [],
+          has_more: false,
+          object: "list",
+          url: "",
+        } as never),
+        async () => {
+          const result = await lookupSessionByPaymentIntent("pi_test_123");
+          expect(result).toBeNull();
+        },
+      );
+    });
+
+    test("returns null when Stripe API throws error", async () => {
+      await updateStripeKey("sk_test_mock");
+      const client = await getStripeClient();
+      if (!client) throw new Error("Expected client to be defined");
+
+      await withMocks(
+        () => spyOn(client.checkout.sessions, "list").mockRejectedValue(new Error("Network error")),
+        async () => {
+          const result = await lookupSessionByPaymentIntent("pi_test_123");
+          expect(result).toBeNull();
         },
       );
     });
