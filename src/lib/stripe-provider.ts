@@ -11,6 +11,7 @@ import type { PaymentLineItem, PaymentSessionDetail } from "#lib/types.ts";
 import {
   createCheckoutSession,
   listCheckoutSessions,
+  lookupSessionByPaymentIntent,
   refundPayment as stripeRefund,
   retrieveCheckoutSession,
   retrieveCheckoutSessionExpanded,
@@ -75,9 +76,11 @@ export const stripePaymentProvider: P.PaymentProvider = {
   checkoutExpiredEventType: "checkout.session.expired",
   refundEventType: "charge.refunded",
 
-  getRefundReference(event: P.WebhookEvent): string | null {
+  async getRefundReference(event: P.WebhookEvent): Promise<string | null> {
     const obj = event.data.object as { payment_intent?: string };
-    return obj.payment_intent ?? null;
+    const paymentIntent = obj.payment_intent;
+    if (!paymentIntent) return null;
+    return await lookupSessionByPaymentIntent(paymentIntent);
   },
 
   async verifyWebhookSignature(

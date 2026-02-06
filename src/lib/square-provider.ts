@@ -57,9 +57,9 @@ export const squarePaymentProvider: PaymentProvider = {
   checkoutExpiredEventType: "order.updated", // Square notifies via order status change
   refundEventType: "refund.updated",
 
-  getRefundReference(event: WebhookEvent): string | null {
-    const obj = event.data.object as { payment_id?: string; id?: string };
-    return obj.payment_id ?? obj.id ?? null;
+  getRefundReference(event: WebhookEvent): Promise<string | null> {
+    const obj = event.data.object as { order_id?: string };
+    return Promise.resolve(obj.order_id ?? null);
   },
 
   verifyWebhookSignature(

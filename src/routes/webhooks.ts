@@ -141,7 +141,7 @@ const handlePaymentWebhook = async (request: Request): Promise<Response> => {
 
   // Handle refund
   if (provider.refundEventType && event.type === provider.refundEventType) {
-    const refundReference = provider.getRefundReference(event);
+    const refundReference = await provider.getRefundReference(event);
     if (!refundReference) return webhookAckResponse();
 
     const restocked = await restockFromRefund(refundReference);

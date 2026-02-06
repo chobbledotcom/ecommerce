@@ -1,7 +1,7 @@
-import { afterEach, beforeEach, describe, expect, test } from "#test-compat";
+import { afterEach, beforeEach, describe, expect, spyOn, test } from "#test-compat";
 import { handleRequest } from "#routes";
 import { getDb } from "#lib/db/client.ts";
-import { constructTestWebhookEvent } from "#lib/stripe.ts";
+import { constructTestWebhookEvent, stripeApi } from "#lib/stripe.ts";
 import { setStripeWebhookConfig } from "#lib/db/settings.ts";
 import {
   createTestDbWithSetup,
@@ -9,6 +9,7 @@ import {
   mockWebhookRequest,
   resetDb,
   setupStripe,
+  withMocks,
 } from "#test-utils";
 import { reserveStock, confirmReservation } from "#lib/db/reservations.ts";
 
@@ -176,28 +177,58 @@ describe("server (webhooks)", () => {
     test("restocks on charge.refunded", async () => {
       await setupStripeWithWebhook();
       const product = await createTestProduct({ stock: 10 });
-      const sessionId = "pi_test_refund";
-      await reserveStock(product.id, 2, sessionId);
-      await confirmReservation(sessionId);
+      const checkoutSessionId = "cs_test_refund_session";
+      const paymentIntentId = "pi_test_refund_intent";
+      await reserveStock(product.id, 2, checkoutSessionId);
+      await confirmReservation(checkoutSessionId);
 
-      const request = await signedWebhookRequest({
-        id: "evt_4",
-        type: "charge.refunded",
-        data: { object: { payment_intent: sessionId } },
-      });
+      await withMocks(
+        () => spyOn(stripeApi, "lookupSessionByPaymentIntent")
+          .mockResolvedValue(checkoutSessionId),
+        async (mocks) => {
+          const request = await signedWebhookRequest({
+            id: "evt_4",
+            type: "charge.refunded",
+            data: { object: { payment_intent: paymentIntentId } },
+          });
 
-      const response = await handleRequest(request);
-      expect(response.status).toBe(200);
-      const data = await response.json();
-      expect(data.processed).toBe(true);
-      expect(data.restocked).toBe(1);
+          const response = await handleRequest(request);
+          expect(response.status).toBe(200);
+          const data = await response.json();
+          expect(data.processed).toBe(true);
+          expect(data.restocked).toBe(1);
+          expect(mocks).toHaveBeenCalledWith(paymentIntentId);
 
-      // Verify reservation status changed from confirmed to expired
-      const result = await getDb().execute({
-        sql: "SELECT status FROM stock_reservations WHERE provider_session_id = ?",
-        args: [sessionId],
-      });
-      expect(result.rows[0]?.status).toBe("expired");
+          // Verify reservation status changed from confirmed to expired
+          const result = await getDb().execute({
+            sql: "SELECT status FROM stock_reservations WHERE provider_session_id = ?",
+            args: [checkoutSessionId],
+          });
+          expect(result.rows[0]?.status).toBe("expired");
+        },
+      );
+    });
+
+    test("acknowledges charge.refunded when session lookup fails", async () => {
+      await setupStripeWithWebhook();
+
+      await withMocks(
+        () => spyOn(stripeApi, "lookupSessionByPaymentIntent")
+          .mockResolvedValue(null),
+        async () => {
+          const request = await signedWebhookRequest({
+            id: "evt_4b",
+            type: "charge.refunded",
+            data: { object: { payment_intent: "pi_test_unknown" } },
+          });
+
+          const response = await handleRequest(request);
+          expect(response.status).toBe(200);
+          const data = await response.json();
+          expect(data.received).toBe(true);
+          expect(data.processed).toBeUndefined();
+        },
+      );
     });
 
     test("acknowledges unhandled event types", async () => {

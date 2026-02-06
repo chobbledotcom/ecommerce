@@ -803,19 +803,27 @@ describe("routes/webhooks.ts (additional event types)", () => {
   test("handles charge.refunded event", async () => {
     const product = await createTestProduct({ stock: 5, unitPrice: 1000 });
     const { reserveStock, confirmReservation } = await import("#lib/db/reservations.ts");
-    await reserveStock(product.id, 1, "refund_pi_123");
-    await confirmReservation("refund_pi_123");
+    const checkoutSessionId = "cs_test_refund_coverage";
+    await reserveStock(product.id, 1, checkoutSessionId);
+    await confirmReservation(checkoutSessionId);
 
-    const request = await signedWebhookRequest({
-      type: "charge.refunded",
-      data: { object: { payment_intent: "refund_pi_123" } },
-    });
+    const { stripeApi } = await import("#lib/stripe.ts");
+    await withMocks(
+      () => spyOn(stripeApi, "lookupSessionByPaymentIntent")
+        .mockResolvedValue(checkoutSessionId),
+      async () => {
+        const request = await signedWebhookRequest({
+          type: "charge.refunded",
+          data: { object: { payment_intent: "pi_test_refund_coverage" } },
+        });
 
-    const response = await handleRequest(request);
-    expect(response.status).toBe(200);
-    const data = await response.json();
-    expect(data.processed).toBe(true);
-    expect(data.restocked).toBe(1);
+        const response = await handleRequest(request);
+        expect(response.status).toBe(200);
+        const data = await response.json();
+        expect(data.processed).toBe(true);
+        expect(data.restocked).toBe(1);
+      },
+    );
   });
 
   test("handles checkout.session.completed with reservations and products", async () => {
@@ -2402,22 +2410,16 @@ describe("square-provider (webhook event types and refund reference)", () => {
     expect(provider.refundEventType).toBe("refund.updated");
   });
 
-  test("getRefundReference extracts payment_id", async () => {
+  test("getRefundReference extracts order_id", async () => {
     const { squarePaymentProvider: provider } = await import("#lib/square-provider.ts");
-    const event = { id: "evt_1", type: "refund.updated", data: { object: { payment_id: "pay_123" } } };
-    expect(provider.getRefundReference(event)).toBe("pay_123");
+    const event = { id: "evt_1", type: "refund.updated", data: { object: { order_id: "order_123" } } };
+    expect(await provider.getRefundReference(event)).toBe("order_123");
   });
 
-  test("getRefundReference falls back to id", async () => {
+  test("getRefundReference returns null when no order_id", async () => {
     const { squarePaymentProvider: provider } = await import("#lib/square-provider.ts");
-    const event = { id: "evt_1", type: "refund.updated", data: { object: { id: "ref_456" } } };
-    expect(provider.getRefundReference(event)).toBe("ref_456");
-  });
-
-  test("getRefundReference returns null when no reference", async () => {
-    const { squarePaymentProvider: provider } = await import("#lib/square-provider.ts");
-    const event = { id: "evt_1", type: "refund.updated", data: { object: {} } };
-    expect(provider.getRefundReference(event)).toBeNull();
+    const event = { id: "evt_1", type: "refund.updated", data: { object: { payment_id: "pay_456" } } };
+    expect(await provider.getRefundReference(event)).toBeNull();
   });
 });
 
