@@ -188,13 +188,13 @@ export const stripeApi: {
       ErrorCode.STRIPE_SESSION,
     ),
 
-  /** Retrieve a checkout session with line items and customer details expanded */
+  /** Retrieve a checkout session with line items, customer details, and payment intent expanded */
   retrieveCheckoutSessionExpanded: (
     sessionId: string,
   ): Promise<Stripe.Checkout.Session | null> =>
     stripeApi.retrieveCheckoutSession(
       sessionId,
-      ["line_items", "customer_details"],
+      ["line_items", "customer_details", "payment_intent.latest_charge"],
     ),
 
   /** List checkout sessions */

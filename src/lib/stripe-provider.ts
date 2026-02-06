@@ -128,12 +128,25 @@ export const stripePaymentProvider: P.PaymentProvider = {
     const base = toPaymentSession(session);
     // deno-lint-ignore no-explicit-any
     const lineItemsObj = (session as any).line_items;
-    const paymentIntent = typeof session.payment_intent === "string"
+
+    // payment_intent may be expanded (object) or a string ID
+    const piObj = typeof session.payment_intent === "object" && session.payment_intent
       ? session.payment_intent
       : null;
+    const paymentIntent = piObj
+      ? piObj.id
+      : (typeof session.payment_intent === "string" ? session.payment_intent : null);
+
+    // Check if the charge has been refunded (Stripe checkout session payment_status
+    // stays "paid" even after a refund, so we must inspect the charge object)
+    // deno-lint-ignore no-explicit-any
+    const latestCharge = (piObj as any)?.latest_charge;
+    const isRefunded = latestCharge && typeof latestCharge === "object" && latestCharge.refunded === true;
+    const status = isRefunded ? "refunded" : base.status;
 
     return {
       ...base,
+      status,
       lineItems: toLineItems(lineItemsObj),
       metadata: toMetadata(session.metadata),
       customerName: session.customer_details?.name ?? null,

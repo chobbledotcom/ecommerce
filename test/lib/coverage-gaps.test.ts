@@ -1963,6 +1963,64 @@ describe("stripe-provider additional operations", () => {
       },
     );
   });
+
+  test("retrieveSessionDetail shows refunded status when charge is refunded", async () => {
+    const { stripePaymentProvider } = await import("#lib/stripe-provider.ts");
+    const { stripeApi } = await import("#lib/stripe.ts");
+
+    await withMocks(
+      () => spyOn(stripeApi, "retrieveCheckoutSessionExpanded").mockResolvedValue({
+        id: "cs_refund_test",
+        payment_status: "paid",
+        amount_total: 2000,
+        currency: "gbp",
+        customer_details: null,
+        created: Math.floor(Date.now() / 1000),
+        url: null,
+        payment_intent: {
+          id: "pi_refund_test",
+          latest_charge: { refunded: true },
+        },
+        line_items: { data: [] },
+        metadata: {},
+      } as unknown as import("stripe").Stripe.Checkout.Session),
+      async () => {
+        const detail = await stripePaymentProvider.retrieveSessionDetail("cs_refund_test");
+        expect(detail).not.toBeNull();
+        expect(detail!.status).toBe("refunded");
+        expect(detail!.paymentReference).toBe("pi_refund_test");
+      },
+    );
+  });
+
+  test("retrieveSessionDetail keeps paid status when charge is not refunded", async () => {
+    const { stripePaymentProvider } = await import("#lib/stripe-provider.ts");
+    const { stripeApi } = await import("#lib/stripe.ts");
+
+    await withMocks(
+      () => spyOn(stripeApi, "retrieveCheckoutSessionExpanded").mockResolvedValue({
+        id: "cs_not_refunded",
+        payment_status: "paid",
+        amount_total: 1500,
+        currency: "gbp",
+        customer_details: null,
+        created: Math.floor(Date.now() / 1000),
+        url: null,
+        payment_intent: {
+          id: "pi_not_refunded",
+          latest_charge: { refunded: false },
+        },
+        line_items: { data: [] },
+        metadata: {},
+      } as unknown as import("stripe").Stripe.Checkout.Session),
+      async () => {
+        const detail = await stripePaymentProvider.retrieveSessionDetail("cs_not_refunded");
+        expect(detail).not.toBeNull();
+        expect(detail!.status).toBe("paid");
+        expect(detail!.paymentReference).toBe("pi_not_refunded");
+      },
+    );
+  });
 });
 
 // =========================================================================
