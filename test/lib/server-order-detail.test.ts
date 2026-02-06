@@ -173,6 +173,52 @@ describe("server (admin order detail)", () => {
       );
     });
 
+    test("shows refunded status when charge has been refunded", async () => {
+      await setupStripe();
+      const { cookie } = await loginAsAdmin();
+
+      await withMocks(
+        () => mockRetrieve({
+          id: "cs_test_refunded",
+          payment_status: "paid",
+          payment_intent: {
+            id: "pi_test_refunded",
+            latest_charge: { refunded: true },
+          },
+        }),
+        async () => {
+          const response = await awaitTestRequest("/admin/orders/cs_test_refunded", { cookie });
+          expect(response.status).toBe(200);
+          const html = await response.text();
+          expect(html).toContain("refunded");
+          expect(html).not.toContain("Issue Refund");
+        },
+      );
+    });
+
+    test("shows paid status when charge is not refunded", async () => {
+      await setupStripe();
+      const { cookie } = await loginAsAdmin();
+
+      await withMocks(
+        () => mockRetrieve({
+          id: "cs_test_not_refunded",
+          payment_status: "paid",
+          payment_intent: {
+            id: "pi_test_not_refunded",
+            latest_charge: { refunded: false },
+          },
+        }),
+        async () => {
+          const response = await awaitTestRequest("/admin/orders/cs_test_not_refunded", { cookie });
+          expect(response.status).toBe(200);
+          const html = await response.text();
+          expect(html).toContain("paid");
+          expect(html).toContain("Issue Refund");
+        },
+      );
+    });
+
     test("shows success message after refund", async () => {
       await setupStripe();
       const { cookie } = await loginAsAdmin();
