@@ -50,13 +50,6 @@ export const executeByField = async (
   });
 };
 
-/**
- * Execute multiple queries in a single round-trip using Turso batch API.
- * Significantly reduces latency for remote databases.
- */
-export const queryBatch = (
-  statements: Array<{ sql: string; args: InValue[] }>,
-): Promise<ResultSet[]> => getDb().batch(statements, "read");
 
 /** Build SQL placeholders for an IN clause, e.g. "?, ?, ?" */
 export const inPlaceholders = (values: readonly unknown[]): string =>

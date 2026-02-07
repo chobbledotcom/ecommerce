@@ -6,6 +6,7 @@ import {
   expireStaleReservations,
   getReservationsBySession,
   reserveStock,
+  reserveStockBatch,
   restockFromRefund,
 } from "#lib/db/reservations.ts";
 import { createTestDb, createTestProduct, resetDb } from "#test-utils";
@@ -252,6 +253,69 @@ describe("reservations", () => {
     test("returns empty array for unknown session", async () => {
       const reservations = await getReservationsBySession("unknown");
       expect(reservations).toHaveLength(0);
+    });
+  });
+
+  describe("withDefault status", () => {
+    test("reservation inserted with default pending status", async () => {
+      const product = await createTestProduct({ stock: 10 });
+      const count = await reserveStock(product.id, 2, "status_test_sess");
+      expect(count).toBeGreaterThan(0);
+
+      const { getDb } = await import("#lib/db/client.ts");
+      const result = await getDb().execute({
+        sql: "SELECT status FROM stock_reservations WHERE provider_session_id = ?",
+        args: ["status_test_sess"],
+      });
+      expect((result.rows[0] as unknown as { status: string }).status).toBe("pending");
+    });
+  });
+
+  describe("reserveStockBatch", () => {
+    test("cleans up successful reservations when a later item fails", async () => {
+      const product1 = await createTestProduct({ sku: "BATCH-OK", stock: 10 });
+      const product2 = await createTestProduct({ sku: "BATCH-FAIL", stock: 1 });
+
+      const result = await reserveStockBatch(
+        [
+          { productId: product1.id, quantity: 2 },
+          { productId: product2.id, quantity: 5 }, // exceeds stock
+        ],
+        new Map([[product1.id, "BATCH-OK"], [product2.id, "BATCH-FAIL"]]),
+        "batch-test-session",
+      );
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.failedSku).toBe("BATCH-FAIL");
+      }
+
+      // Verify the first reservation was cleaned up (expired)
+      const { getDb } = await import("#lib/db/client.ts");
+      const rows = await getDb().execute({
+        sql: "SELECT * FROM stock_reservations WHERE provider_session_id = ? AND status = 'pending'",
+        args: ["batch-test-session"],
+      });
+      expect(rows.rows.length).toBe(0);
+    });
+
+    test("succeeds for all items when stock is available", async () => {
+      const product1 = await createTestProduct({ sku: "B-OK1", stock: 10 });
+      const product2 = await createTestProduct({ sku: "B-OK2", stock: 5 });
+
+      const result = await reserveStockBatch(
+        [
+          { productId: product1.id, quantity: 2 },
+          { productId: product2.id, quantity: 3 },
+        ],
+        new Map([[product1.id, "B-OK1"], [product2.id, "B-OK2"]]),
+        "batch-ok-session",
+      );
+
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.reservationIds.length).toBe(2);
+      }
     });
   });
 });

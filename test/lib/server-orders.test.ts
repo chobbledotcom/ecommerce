@@ -95,4 +95,90 @@ describe("server (admin orders)", () => {
       );
     });
   });
+
+  describe("formatAmount via orders page", () => {
+    test("renders order with null amount as dash", async () => {
+      await setupStripe();
+      const { cookie } = await loginAsAdmin();
+
+      await withMocks(
+        () => spyOn(stripeApi, "listCheckoutSessions").mockResolvedValue({
+          sessions: [
+            {
+              id: "sess_null_amount",
+              payment_status: "paid",
+              amount_total: null,
+              currency: null,
+              customer_details: null,
+              created: Math.floor(Date.now() / 1000),
+              url: null,
+            },
+          ],
+          hasMore: false,
+        }),
+        async () => {
+          const response = await awaitTestRequest("/admin/orders", { cookie });
+          expect(response.status).toBe(200);
+          const html = await response.text();
+          expect(html).toContain("-");
+        },
+      );
+    });
+
+    test("renders order amount without currency", async () => {
+      await setupStripe();
+      const { cookie } = await loginAsAdmin();
+
+      await withMocks(
+        () => spyOn(stripeApi, "listCheckoutSessions").mockResolvedValue({
+          sessions: [
+            {
+              id: "sess_no_currency",
+              payment_status: "paid",
+              amount_total: 1500,
+              currency: null,
+              customer_details: null,
+              created: Math.floor(Date.now() / 1000),
+              url: null,
+            },
+          ],
+          hasMore: false,
+        }),
+        async () => {
+          const response = await awaitTestRequest("/admin/orders", { cookie });
+          expect(response.status).toBe(200);
+          const html = await response.text();
+          expect(html).toContain("15.00");
+        },
+      );
+    });
+
+    test("renders order amount with currency", async () => {
+      await setupStripe();
+      const { cookie } = await loginAsAdmin();
+
+      await withMocks(
+        () => spyOn(stripeApi, "listCheckoutSessions").mockResolvedValue({
+          sessions: [
+            {
+              id: "sess_with_currency",
+              payment_status: "paid",
+              amount_total: 2500,
+              currency: "gbp",
+              customer_details: null,
+              created: Math.floor(Date.now() / 1000),
+              url: null,
+            },
+          ],
+          hasMore: false,
+        }),
+        async () => {
+          const response = await awaitTestRequest("/admin/orders", { cookie });
+          expect(response.status).toBe(200);
+          const html = await response.text();
+          expect(html).toContain("25.00 GBP");
+        },
+      );
+    });
+  });
 });

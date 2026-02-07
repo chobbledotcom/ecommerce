@@ -6,17 +6,6 @@ import { createFormParser } from "#lib/forms.tsx";
 import type { Field } from "#lib/forms.tsx";
 import type { AdminLevel } from "#lib/types.ts";
 
-/**
- * Validate email format
- */
-export const validateEmail = (value: string): string | null => {
-  // Basic email format check - more permissive than strict RFC but catches common issues
-  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-  if (!emailRegex.test(value)) {
-    return "Please enter a valid email address";
-  }
-  return null;
-};
 
 /**
  * Validate phone number format

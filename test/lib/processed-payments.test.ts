@@ -131,4 +131,44 @@ describe("processed-payments", () => {
       }
     });
   });
+
+  describe("reserveSession conflict", () => {
+    test("reserveSession returns conflict for already-claimed session", async () => {
+      const result1 = await reserveSession("sess_123");
+      expect(result1.reserved).toBe(true);
+
+      const result2 = await reserveSession("sess_123");
+      expect(result2.reserved).toBe(false);
+      if (!result2.reserved) {
+        expect(result2.existing.payment_session_id).toBe("sess_123");
+      }
+    });
+
+    test("reserveSession reclaims stale reservation", async () => {
+      // Insert a stale reservation
+      const staleTime = new Date(Date.now() - STALE_RESERVATION_MS - 1000).toISOString();
+      await getDb().execute({
+        sql: "INSERT INTO processed_payments (payment_session_id, processed_at) VALUES (?, ?)",
+        args: ["stale_sess", staleTime],
+      });
+
+      const result = await reserveSession("stale_sess");
+      expect(result.reserved).toBe(true);
+    });
+
+    test("reserveSession rethrows non-constraint errors", async () => {
+      // Drop the table to cause a different error
+      await getDb().execute("DROP TABLE processed_payments");
+
+      await expect(reserveSession("any_sess")).rejects.toThrow();
+
+      // Recreate for cleanup
+      await getDb().execute(`
+        CREATE TABLE processed_payments (
+          payment_session_id TEXT PRIMARY KEY,
+          processed_at TEXT NOT NULL
+        )
+      `);
+    });
+  });
 });

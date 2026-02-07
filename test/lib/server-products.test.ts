@@ -284,4 +284,120 @@ describe("server (admin products)", () => {
       expectAdminRedirect(response);
     });
   });
+
+  describe("stockText", () => {
+    test("shows 'Unlimited' for stock of -1", async () => {
+      await createTestProduct({ stock: -1 });
+      const { cookie } = await loginAsAdmin();
+      const response = await awaitTestRequest("/admin/", { cookie });
+      const html = await response.text();
+      expect(html).toContain("Unlimited");
+    });
+
+    test("shows available/total for limited stock", async () => {
+      await createTestProduct({ stock: 10 });
+      const { cookie } = await loginAsAdmin();
+      const response = await awaitTestRequest("/admin/", { cookie });
+      const html = await response.text();
+      expect(html).toContain("10 / 10");
+    });
+  });
+
+  describe("admin products edge cases", () => {
+    test("GET /admin/product/abc/edit returns 404 for non-numeric ID", async () => {
+      const { cookie } = await loginAsAdmin();
+      const response = await awaitTestRequest("/admin/product/abc/edit", { cookie });
+      expect(response.status).toBe(404);
+    });
+
+    test("POST /admin/product/9999 returns 404 for non-existent product", async () => {
+      const { cookie, csrfToken } = await loginAsAdmin();
+      const response = await handleRequest(
+        mockFormRequest(
+          "/admin/product/9999",
+          { name: "Test", sku: "T", unit_price: "100", stock: "1", csrf_token: csrfToken },
+          cookie,
+        ),
+      );
+      expect(response.status).toBe(404);
+    });
+
+    test("POST /admin/product/abc/delete returns 404 for non-numeric ID", async () => {
+      const { cookie, csrfToken } = await loginAsAdmin();
+      const response = await handleRequest(
+        mockFormRequest(
+          "/admin/product/abc/delete",
+          { csrf_token: csrfToken },
+          cookie,
+        ),
+      );
+      // Non-numeric ID won't match the route pattern
+      expect(response.status).toBe(404);
+    });
+  });
+
+  describe("remaining product edge cases", () => {
+    test("GET /admin/product/0/edit returns 404 (parseProductId returns null for zero)", async () => {
+      const { cookie } = await loginAsAdmin();
+      const response = await awaitTestRequest("/admin/product/0/edit", { cookie });
+      expect(response.status).toBe(404);
+    });
+
+    test("GET /admin/product/9999/edit returns 404 for non-existent product", async () => {
+      const { cookie } = await loginAsAdmin();
+      const response = await awaitTestRequest("/admin/product/9999/edit", { cookie });
+      expect(response.status).toBe(404);
+    });
+
+    test("POST /admin/product/0 returns 404 for zero ID", async () => {
+      const { cookie, csrfToken } = await loginAsAdmin();
+      const response = await handleRequest(
+        mockFormRequest(
+          "/admin/product/0",
+          { name: "Test", sku: "T", unit_price: "100", stock: "1", csrf_token: csrfToken },
+          cookie,
+        ),
+      );
+      expect(response.status).toBe(404);
+    });
+
+    test("POST /admin/product/9999 returns 404 for non-existent product", async () => {
+      const { cookie, csrfToken } = await loginAsAdmin();
+      const response = await handleRequest(
+        mockFormRequest(
+          "/admin/product/9999",
+          { name: "Test", sku: "T", unit_price: "100", stock: "1", csrf_token: csrfToken },
+          cookie,
+        ),
+      );
+      expect(response.status).toBe(404);
+    });
+
+    test("POST /admin/product/0/delete returns 404 for zero ID", async () => {
+      const { cookie, csrfToken } = await loginAsAdmin();
+      const response = await handleRequest(
+        mockFormRequest(
+          "/admin/product/0/delete",
+          { csrf_token: csrfToken },
+          cookie,
+        ),
+      );
+      expect(response.status).toBe(404);
+    });
+  });
+
+  describe("escapeHtml via product display", () => {
+    test("escapes HTML characters in product names on admin page", async () => {
+      await createTestProduct({ name: '<script>alert("xss")</script>', sku: "XSS-1" });
+      await createTestProduct({ name: "Widgets & Gadgets", sku: "AMP-1" });
+      await createTestProduct({ name: 'Say "hello"', sku: "QUOT-1" });
+      const { cookie } = await loginAsAdmin();
+      const response = await awaitTestRequest("/admin/", { cookie });
+      const html = await response.text();
+      expect(html).toContain("&lt;script&gt;");
+      expect(html).toContain("&amp;");
+      expect(html).toContain("&quot;");
+      expect(html).not.toContain("<script>alert");
+    });
+  });
 });

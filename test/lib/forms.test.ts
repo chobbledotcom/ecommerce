@@ -548,4 +548,20 @@ describe("forms", () => {
     });
   });
 
+  describe("parseCurrencyForm", () => {
+    test("parseCurrencyForm rejects invalid currency code", async () => {
+      const { parseCurrencyForm } = await import("#templates/fields.ts");
+      const form = new URLSearchParams({ currency_code: "ab" });
+      const result = parseCurrencyForm(form);
+      expect(result.valid).toBe(false);
+    });
+
+    test("parseCurrencyForm accepts valid 3-letter code", async () => {
+      const { parseCurrencyForm } = await import("#templates/fields.ts");
+      const form = new URLSearchParams({ currency_code: "usd" });
+      const result = parseCurrencyForm(form);
+      expect(result.valid).toBe(true);
+    });
+  });
+
 });

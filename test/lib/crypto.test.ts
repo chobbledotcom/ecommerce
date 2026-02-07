@@ -22,10 +22,13 @@ import {
   validateEncryptionKey,
   verifyPassword,
   wrapKey,
+  getPrivateKeyFromSession,
   wrapKeyWithToken,
 } from "#lib/crypto.ts";
 import {
   clearTestEncryptionKey,
+  createTestDbWithSetup,
+  resetDb,
   setupTestEncryptionKey,
   TEST_ENCRYPTION_KEY,
 } from "#test-utils";
@@ -614,5 +617,32 @@ describe("encryptWithKey and decryptWithKey", () => {
     await expect(decryptWithKey("enc:1:nodatahere", key)).rejects.toThrow(
       "Invalid encrypted data format: missing IV separator",
     );
+  });
+});
+
+describe("getPrivateKeyFromSession", () => {
+  beforeEach(async () => {
+    await createTestDbWithSetup();
+  });
+
+  afterEach(() => {
+    resetDb();
+  });
+
+  it("derives private key from session credentials", async () => {
+    // Generate a key pair and data key
+    const { privateKey: privateKeyJwk } = await generateKeyPair();
+    const dataKey = await generateDataKey();
+
+    // Wrap the data key with a test token
+    const testToken = "test-session-token-" + crypto.randomUUID();
+    const wrappedDataKey = await wrapKeyWithToken(dataKey, testToken);
+
+    // Encrypt the private key with the data key
+    const wrappedPrivateKey = await encryptWithKey(privateKeyJwk, dataKey);
+
+    // Now recover it
+    const recovered = await getPrivateKeyFromSession(testToken, wrappedDataKey, wrappedPrivateKey);
+    expect(recovered).not.toBeNull();
   });
 });

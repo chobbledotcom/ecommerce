@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "#test-compat";
 import { handleRequest } from "#routes";
 import { stripeApi } from "#lib/stripe.ts";
+import { getDb } from "#lib/db/client.ts";
+import { reserveStock } from "#lib/db/reservations.ts";
 import {
   createTestDbWithSetup,
   createTestProduct,
@@ -422,6 +424,167 @@ describe("server (public API)", () => {
         }),
       );
       expect(response.headers.get("access-control-allow-origin")).toBeNull();
+    });
+  });
+
+  describe("checkout edge cases", () => {
+    test("returns 400 for item with null object", async () => {
+      await setupStripe();
+      await withMocks(
+        () => stripeCreateMock(),
+        async () => {
+          const response = await handleRequest(
+            new Request("http://localhost/api/checkout", {
+              method: "POST",
+              headers: { host: "localhost", "content-type": "application/json" },
+              body: JSON.stringify({
+                items: [null],
+                success_url: "https://shop.example.com/success",
+                cancel_url: "https://shop.example.com/cancel",
+              }),
+            }),
+          );
+          expect(response.status).toBe(400);
+        },
+      );
+    });
+
+    test("returns 400 for item with empty sku", async () => {
+      await setupStripe();
+      await withMocks(
+        () => stripeCreateMock(),
+        async () => {
+          const response = await handleRequest(
+            new Request("http://localhost/api/checkout", {
+              method: "POST",
+              headers: { host: "localhost", "content-type": "application/json" },
+              body: JSON.stringify({
+                items: [{ sku: "", quantity: 1 }],
+                success_url: "https://shop.example.com/success",
+                cancel_url: "https://shop.example.com/cancel",
+              }),
+            }),
+          );
+          expect(response.status).toBe(400);
+        },
+      );
+    });
+
+    test("releases earlier reservations when later item has insufficient stock", async () => {
+      await setupStripe();
+      await createTestProduct({ sku: "PLENTY", stock: 100, unitPrice: 1000 });
+      await createTestProduct({ sku: "SCARCE", stock: 1, unitPrice: 500 });
+
+      await withMocks(
+        () => stripeCreateMock(),
+        async () => {
+          const response = await handleRequest(
+            new Request("http://localhost/api/checkout", {
+              method: "POST",
+              headers: { host: "localhost", "content-type": "application/json" },
+              body: JSON.stringify({
+                items: [
+                  { sku: "PLENTY", quantity: 1 },
+                  { sku: "SCARCE", quantity: 5 },
+                ],
+                success_url: "https://shop.example.com/success",
+                cancel_url: "https://shop.example.com/cancel",
+              }),
+            }),
+          );
+          expect(response.status).toBe(409);
+          const data = await response.json();
+          expect(data.details[0].sku).toBe("SCARCE");
+        },
+      );
+    });
+  });
+
+  describe("null body", () => {
+    beforeEach(async () => {
+      await setupStripe();
+    });
+
+    test("returns 400 for null body", async () => {
+      const response = await handleRequest(
+        new Request("http://localhost/api/checkout", {
+          method: "POST",
+          headers: { host: "localhost", "content-type": "application/json" },
+          body: "null",
+        }),
+      );
+      expect(response.status).toBe(400);
+    });
+
+    test("returns 400 for non-object body (string)", async () => {
+      const response = await handleRequest(
+        new Request("http://localhost/api/checkout", {
+          method: "POST",
+          headers: { host: "localhost", "content-type": "application/json" },
+          body: '"just a string"',
+        }),
+      );
+      expect(response.status).toBe(400);
+    });
+  });
+
+  describe("getAvailableStock (via API)", () => {
+    test("returns in_stock true with no stock property for unlimited stock", async () => {
+      await createTestProduct({ stock: -1 });
+      const response = await handleRequest(
+        new Request("http://localhost/api/products", {
+          headers: { host: "localhost" },
+        }),
+      );
+      expect(response.status).toBe(200);
+      const data = await response.json();
+      expect(data.length).toBe(1);
+      expect(data[0].in_stock).toBe(true);
+      expect(data[0].stock).toBeUndefined();
+    });
+
+    test("returns stock count for limited stock", async () => {
+      await createTestProduct({ stock: 5 });
+      const response = await handleRequest(
+        new Request("http://localhost/api/products", {
+          headers: { host: "localhost" },
+        }),
+      );
+      expect(response.status).toBe(200);
+      const data = await response.json();
+      expect(data.length).toBe(1);
+      expect(data[0].stock).toBe(5);
+    });
+
+    test("subtracts reserved quantity from stock", async () => {
+      const product = await createTestProduct({ stock: 10 });
+      await reserveStock(product.id, 3, "sess_api_test");
+      const response = await handleRequest(
+        new Request("http://localhost/api/products", {
+          headers: { host: "localhost" },
+        }),
+      );
+      expect(response.status).toBe(200);
+      const data = await response.json();
+      expect(data.length).toBe(1);
+      expect(data[0].stock).toBe(7);
+    });
+
+    test("returns 0 stock when over-reserved (Math.max protection)", async () => {
+      const product = await createTestProduct({ stock: 1 });
+      await getDb().execute({
+        sql: "INSERT INTO stock_reservations (product_id, quantity, provider_session_id, status, created) VALUES (?, ?, ?, ?, ?)",
+        args: [product.id, 5, "over_sess_api", "pending", new Date().toISOString()],
+      });
+      const response = await handleRequest(
+        new Request("http://localhost/api/products", {
+          headers: { host: "localhost" },
+        }),
+      );
+      expect(response.status).toBe(200);
+      const data = await response.json();
+      expect(data.length).toBe(1);
+      expect(data[0].stock).toBe(0);
     });
   });
 });

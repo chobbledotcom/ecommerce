@@ -10,22 +10,36 @@ import {
 } from "#test-compat";
 import { spyOn } from "#test-compat";
 import {
+  authenticatedFormRequest,
   awaitTestRequest,
   createTestDb,
   createTestDbWithSetup,
+  createTestProduct,
   errorResponse,
+  expectInvalid,
+  expectInvalidForm,
+  expectRedirect,
+  expectResultError,
+  expectResultNotFound,
   expectStatus,
+  expectValid,
   getCsrfTokenFromCookie,
   getSetupCsrfToken,
+  getTestSession,
+  invalidateTestDbCache,
   loginAsAdmin,
   mockFormRequest,
   mockRequest,
+  mockSetupFormRequest,
   mockWebhookRequest,
   randomString,
   resetDb,
+  resetTestSession,
   setupStripe,
+  successResponse,
   testRequest,
   wait,
+  withMocks,
 } from "#test-utils";
 
 describe("test-utils", () => {
@@ -343,6 +357,145 @@ describe("test-utils", () => {
       await expect(loginAsAdmin()).rejects.toThrow(
         "Failed to get CSRF token for admin login",
       );
+    });
+  });
+
+  describe("invalidateTestDbCache", () => {
+    test("clears cache without throwing", async () => {
+      await createTestDbWithSetup();
+      invalidateTestDbCache();
+    });
+  });
+
+  describe("getTestSession", () => {
+    beforeEach(async () => {
+      await createTestDbWithSetup();
+    });
+
+    test("returns cached session on repeated calls", async () => {
+      const session1 = await getTestSession();
+      const session2 = await getTestSession();
+      expect(session1.csrfToken).toBe(session2.csrfToken);
+    });
+  });
+
+  describe("authenticatedFormRequest", () => {
+    beforeEach(async () => {
+      await createTestDbWithSetup();
+    });
+
+    test("throws on non-redirect response", async () => {
+      await expect(
+        authenticatedFormRequest(
+          "/admin/settings",
+          { nonexistent_field: "value" },
+          () => "ok",
+          "test operation",
+        ),
+      ).rejects.toThrow("Failed to");
+    });
+  });
+
+  describe("expectRedirect", () => {
+    test("asserts redirect status and location", () => {
+      const response = new Response(null, {
+        status: 302,
+        headers: { location: "/target" },
+      });
+      const result = expectRedirect("/target")(response);
+      expect(result).toBe(response);
+    });
+  });
+
+  describe("expectResultError", () => {
+    test("asserts error result", () => {
+      const result = expectResultError("bad")({ ok: false, error: "bad" });
+      expect(result.ok).toBe(false);
+    });
+  });
+
+  describe("expectResultNotFound", () => {
+    test("asserts notFound result", () => {
+      const result = expectResultNotFound({ ok: false, notFound: true });
+      expect(result.ok).toBe(false);
+    });
+  });
+
+  describe("successResponse", () => {
+    test("creates response factory with given status", () => {
+      const factory = successResponse(201, "created");
+      const response = factory();
+      expect(response.status).toBe(201);
+    });
+  });
+
+  describe("expectValid", () => {
+    test("validates form data and returns values", async () => {
+      const { loginFields } = await import("#templates/fields.ts");
+      const values = expectValid(loginFields, { username: "admin", password: "pass" });
+      expect(values.username).toBe("admin");
+    });
+  });
+
+  describe("expectInvalid", () => {
+    test("validates invalid form data with expected error", async () => {
+      const { loginFields } = await import("#templates/fields.ts");
+      expectInvalid("Username is required")(loginFields, { username: "", password: "pass" });
+    });
+  });
+
+  describe("expectInvalidForm", () => {
+    test("validates invalid form data", async () => {
+      const { loginFields } = await import("#templates/fields.ts");
+      expectInvalidForm(loginFields, { username: "", password: "" });
+    });
+  });
+
+  describe("withMocks", () => {
+    test("restores single mock after callback", async () => {
+      const obj = { method: () => "original" };
+      await withMocks(
+        () => spyOn(obj, "method").mockReturnValue("mocked"),
+        (_mock) => {
+          expect(obj.method()).toBe("mocked");
+        },
+      );
+      expect(obj.method()).toBe("original");
+    });
+
+    test("restores object of mocks after callback", async () => {
+      const obj = { a: () => "a", b: () => "b" };
+      await withMocks(
+        () => ({
+          mockA: spyOn(obj, "a").mockReturnValue("A"),
+          mockB: spyOn(obj, "b").mockReturnValue("B"),
+        }),
+        (_mocks) => {
+          expect(obj.a()).toBe("A");
+          expect(obj.b()).toBe("B");
+        },
+      );
+      expect(obj.a()).toBe("a");
+      expect(obj.b()).toBe("b");
+    });
+
+    test("calls cleanup function", async () => {
+      let cleanedUp = false;
+      const obj = { method: () => "original" };
+      await withMocks(
+        () => spyOn(obj, "method").mockReturnValue("mocked"),
+        () => {},
+        () => { cleanedUp = true; },
+      );
+      expect(cleanedUp).toBe(true);
+    });
+  });
+
+  describe("mockSetupFormRequest", () => {
+    test("creates POST request to /setup", () => {
+      const req = mockSetupFormRequest({ admin_username: "u", admin_password: "p" }, "csrf123");
+      expect(req.method).toBe("POST");
+      expect(req.url).toContain("/setup");
     });
   });
 
@@ -724,6 +877,57 @@ describe("test-compat", () => {
       jest.useRealTimers();
       expect(Date.now()).toBeGreaterThanOrEqual(realNow);
     });
+  });
+
+  describe("spyOn with mockReturnValue", () => {
+    test("tracks calls and can be restored", () => {
+      const obj = { getValue: () => 42 };
+      const spy = spyOn(obj, "getValue").mockReturnValue(99);
+      expect(obj.getValue()).toBe(99);
+      expect(spy).toHaveBeenCalled();
+      spy.mockRestore!();
+      expect(obj.getValue()).toBe(42);
+    });
+  });
+
+  describe("not.toHaveBeenCalled", () => {
+    test("passes when spy has not been called", () => {
+      const obj = { fn: () => 42 };
+      const spy = spyOn(obj, "fn");
+      expect(spy).not.toHaveBeenCalled();
+      spy.mockRestore();
+    });
+  });
+});
+
+describe("test-utils additional coverage", () => {
+  beforeEach(async () => {
+    await createTestDbWithSetup();
+  });
+
+  afterEach(() => {
+    resetDb();
+  });
+
+  test("authenticatedFormRequest succeeds on redirect response", async () => {
+    await createTestProduct({ stock: 10 });
+    const result = await authenticatedFormRequest(
+      "/admin/product/new",
+      { name: "Auth Test", sku: "AUTH-1", unit_price: "500", stock: "5", description: "" },
+      () => "product created",
+      "create product",
+    );
+    expect(result).toBe("product created");
+  });
+
+  test("getTestSession slow path (no cached session) calls loginAsAdmin", async () => {
+    // Clear all caches so getTestSession hits the slow path
+    invalidateTestDbCache();
+    resetTestSession();
+    // The DB still has a valid admin user from createTestDbWithSetup
+    const session = await getTestSession();
+    expect(session.cookie).toBeTruthy();
+    expect(session.csrfToken).toBeTruthy();
   });
 });
 

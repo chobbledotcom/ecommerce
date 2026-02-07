@@ -261,5 +261,104 @@ describe("server (webhooks)", () => {
       const data = await response.json();
       expect(data.received).toBe(true);
     });
+
+    test("acknowledges charge.refunded with missing payment_intent", async () => {
+      await setupStripeWithWebhook();
+
+      const request = await signedWebhookRequest({
+        id: "evt_refund_no_pi",
+        type: "charge.refunded",
+        data: { object: {} },
+      });
+
+      const response = await handleRequest(request);
+      expect(response.status).toBe(200);
+      const data = await response.json();
+      expect(data.received).toBe(true);
+    });
+
+    test("acknowledges checkout.session.expired with missing session ID", async () => {
+      await setupStripeWithWebhook();
+
+      const request = await signedWebhookRequest({
+        id: "evt_expired_no_id",
+        type: "checkout.session.expired",
+        data: { object: {} },
+      });
+
+      const response = await handleRequest(request);
+      expect(response.status).toBe(200);
+      const data = await response.json();
+      expect(data.received).toBe(true);
+    });
+  });
+
+  describe("buildLineItems edge cases", () => {
+    const BUILD_LINE_ITEMS_SECRET = "whsec_test_build_line_items";
+
+    beforeEach(async () => {
+      await setupStripe();
+      await setStripeWebhookConfig(BUILD_LINE_ITEMS_SECRET, "we_test_bli");
+    });
+
+    test("handles completed session with no reservations (empty line items)", async () => {
+      const { payload, signature } = await constructTestWebhookEvent(
+        {
+          id: "evt_no_reservations",
+          type: "checkout.session.completed",
+          data: { object: { id: "sess_no_reservations" } },
+        } as Parameters<typeof constructTestWebhookEvent>[0],
+        BUILD_LINE_ITEMS_SECRET,
+      );
+
+      const response = await handleRequest(
+        new Request("http://localhost/payment/webhook", {
+          method: "POST",
+          headers: {
+            host: "localhost",
+            "content-type": "application/json",
+            "stripe-signature": signature,
+          },
+          body: payload,
+        }),
+      );
+      expect(response.status).toBe(200);
+      const data = await response.json();
+      expect(data.processed).toBe(true);
+      expect(data.confirmed).toBe(0);
+    });
+
+    test("handles product deleted after reservation (product map miss)", async () => {
+      await getDb().execute("PRAGMA foreign_keys = OFF");
+      await getDb().execute({
+        sql: "INSERT INTO stock_reservations (product_id, quantity, provider_session_id, status, created) VALUES (?, ?, ?, ?, ?)",
+        args: [99999, 1, "sess_deleted_product", "pending", new Date().toISOString()],
+      });
+      await getDb().execute("PRAGMA foreign_keys = ON");
+
+      const { payload, signature } = await constructTestWebhookEvent(
+        {
+          id: "evt_deleted_product",
+          type: "checkout.session.completed",
+          data: { object: { id: "sess_deleted_product" } },
+        } as Parameters<typeof constructTestWebhookEvent>[0],
+        BUILD_LINE_ITEMS_SECRET,
+      );
+
+      const response = await handleRequest(
+        new Request("http://localhost/payment/webhook", {
+          method: "POST",
+          headers: {
+            host: "localhost",
+            "content-type": "application/json",
+            "stripe-signature": signature,
+          },
+          body: payload,
+        }),
+      );
+      expect(response.status).toBe(200);
+      const data = await response.json();
+      expect(data.processed).toBe(true);
+    });
   });
 });
