@@ -2,7 +2,7 @@
  * Database client setup and core utilities
  */
 
-import { type Client, createClient, type InValue, type ResultSet } from "@libsql/client";
+import { type Client, createClient, type InValue } from "@libsql/client";
 import { lazyRef } from "#fp";
 import { getEnv } from "#lib/env.ts";
 

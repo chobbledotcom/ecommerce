@@ -1,12 +1,9 @@
 import { afterEach, beforeEach, describe, expect, jest, test, spyOn } from "#test-compat";
 import {
   constructTestWebhookEvent,
-  createCheckoutSession,
   getSquareClient,
   resetSquareClient,
-  retrieveOrder,
   retrievePayment,
-  searchOrders,
   squareApi,
   verifyWebhookSignature,
 } from "#lib/square.ts";
@@ -14,7 +11,6 @@ import { squarePaymentProvider } from "#lib/square-provider.ts";
 import type { WebhookEvent } from "#lib/payments.ts";
 import {
   updateSquareAccessToken,
-  updateSquareLocationId,
   updateSquareWebhookSignatureKey,
 } from "#lib/db/settings.ts";
 import { createTestDb, resetDb, withMocks } from "#test-utils";

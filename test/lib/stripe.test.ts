@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test, spyOn, jest } from "#test-compat";
+import { afterEach, beforeEach, describe, expect, test, spyOn } from "#test-compat";
 import {
   constructTestWebhookEvent,
   getStripeClient,

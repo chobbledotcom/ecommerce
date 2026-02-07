@@ -77,7 +77,7 @@ describe("payment-helpers", () => {
   });
 
   describe("toSessionListResult", () => {
-    test("returns empty result when items are undefined", async () => {
+    test("returns empty result when items are undefined", () => {
       const result = toSessionListResult(
         { hasMore: true },
         undefined,

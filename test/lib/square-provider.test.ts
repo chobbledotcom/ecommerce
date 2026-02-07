@@ -1,7 +1,6 @@
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "#test-compat";
 import { squarePaymentProvider } from "#lib/square-provider.ts";
-import { resetSquareClient, squareApi } from "#lib/square.ts";
-import { updateSquareAccessToken, updateSquareLocationId } from "#lib/db/settings.ts";
+import { squareApi } from "#lib/square.ts";
 import { createTestDb, resetDb, withMocks } from "#test-utils";
 
 describe("square-provider", () => {
