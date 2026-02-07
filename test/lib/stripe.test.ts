@@ -1153,3 +1153,359 @@ describe("stripe-provider", () => {
     });
   });
 });
+
+describe("stripe API operations (stripe-mock)", () => {
+  beforeEach(async () => {
+    const { resetStripeClient } = await import("#lib/stripe.ts");
+    resetStripeClient();
+    await createTestDb();
+    const { updateStripeKey } = await import("#lib/db/settings.ts");
+    await updateStripeKey("sk_test_mock");
+  });
+
+  afterEach(async () => {
+    const mod = await import("#lib/stripe.ts");
+    mod.resetStripeClient();
+    resetDb();
+  });
+
+  test("createCheckoutSession creates session via stripe-mock", async () => {
+    const { stripeApi } = await import("#lib/stripe.ts");
+    const result = await stripeApi.createCheckoutSession({
+      lineItems: [{ name: "Test Item", unitPrice: 1000, quantity: 1 }],
+      metadata: { test: "true" },
+      successUrl: "https://example.com/success",
+      cancelUrl: "https://example.com/cancel",
+      currency: "gbp",
+    });
+    // stripe-mock returns a session with url
+    expect(result).not.toBeNull();
+    if (result) {
+      expect(result.sessionId).toBeDefined();
+      expect(result.checkoutUrl).toBeDefined();
+    }
+  });
+
+  test("retrieveCheckoutSession retrieves via stripe-mock", async () => {
+    const { stripeApi } = await import("#lib/stripe.ts");
+    // First create a session
+    const created = await stripeApi.createCheckoutSession({
+      lineItems: [{ name: "Retrieve Test", unitPrice: 500, quantity: 2 }],
+      metadata: {},
+      successUrl: "https://example.com/success",
+      cancelUrl: "https://example.com/cancel",
+      currency: "usd",
+    });
+    expect(created).not.toBeNull();
+
+    // Now retrieve it
+    const retrieved = await stripeApi.retrieveCheckoutSession(created!.sessionId);
+    expect(retrieved).not.toBeNull();
+    expect(retrieved!.id).toBe(created!.sessionId);
+  });
+
+  test("listCheckoutSessions lists sessions via stripe-mock", async () => {
+    const { stripeApi } = await import("#lib/stripe.ts");
+    const result = await stripeApi.listCheckoutSessions({ limit: 10 });
+    expect(result).not.toBeNull();
+    if (result) {
+      expect(Array.isArray(result.sessions)).toBe(true);
+      expect(typeof result.hasMore).toBe("boolean");
+    }
+  });
+
+  test("listCheckoutSessions with startingAfter", async () => {
+    const { stripeApi } = await import("#lib/stripe.ts");
+    // Create a session first so we have something to paginate from
+    const created = await stripeApi.createCheckoutSession({
+      lineItems: [{ name: "List Test", unitPrice: 100, quantity: 1 }],
+      metadata: {},
+      successUrl: "https://example.com/success",
+      cancelUrl: "https://example.com/cancel",
+      currency: "gbp",
+    });
+    expect(created).not.toBeNull();
+
+    const result = await stripeApi.listCheckoutSessions({
+      limit: 5,
+      startingAfter: created!.sessionId,
+    });
+    expect(result).not.toBeNull();
+  });
+
+  test("wrapper function listCheckoutSessions delegates", async () => {
+    const { listCheckoutSessions } = await import("#lib/stripe.ts");
+    const result = await listCheckoutSessions({ limit: 5 });
+    expect(result).not.toBeNull();
+  });
+
+  test("createCheckoutSession returns null when stripe client unavailable", async () => {
+    const { stripeApi, resetStripeClient } = await import("#lib/stripe.ts");
+    resetStripeClient();
+    resetDb();
+    await createTestDb();
+    // No stripe key configured
+    const result = await stripeApi.createCheckoutSession({
+      lineItems: [{ name: "Fail", unitPrice: 100, quantity: 1 }],
+      metadata: {},
+      successUrl: "https://example.com/success",
+      cancelUrl: "https://example.com/cancel",
+      currency: "gbp",
+    });
+    expect(result).toBeNull();
+  });
+
+  test("createCheckoutSession returns null when session has no URL", async () => {
+    const { stripeApi } = await import("#lib/stripe.ts");
+    // Get the actual Stripe client to mock its internal create method
+    const client = await stripeApi.getStripeClient();
+    expect(client).not.toBeNull();
+    const stripeClient = client!;
+    await withMocks(
+      () => spyOn(stripeClient.checkout.sessions, "create").mockResolvedValue(
+        { id: "cs_no_url", url: null } as Awaited<ReturnType<typeof stripeClient.checkout.sessions.create>>,
+      ),
+      async () => {
+        const result = await stripeApi.createCheckoutSession({
+          lineItems: [{ name: "No URL", unitPrice: 100, quantity: 1 }],
+          metadata: {},
+          successUrl: "https://example.com/success",
+          cancelUrl: "https://example.com/cancel",
+          currency: "gbp",
+        });
+        expect(result).toBeNull();
+      },
+    );
+  });
+
+  test("refundPayment wrapper delegates to stripeApi", async () => {
+    const { refundPayment, stripeApi } = await import("#lib/stripe.ts");
+    const fakeRefund = { id: "re_test", status: "succeeded" } as Awaited<ReturnType<typeof stripeApi.refundPayment>>;
+    await withMocks(
+      () => spyOn(stripeApi, "refundPayment").mockResolvedValue(fakeRefund),
+      async () => {
+        const result = await refundPayment("pi_test");
+        expect(result).toBe(fakeRefund);
+      },
+    );
+  });
+});
+
+describe("stripe-provider additional operations", () => {
+  beforeEach(async () => {
+    const { resetStripeClient } = await import("#lib/stripe.ts");
+    resetStripeClient();
+    await createTestDb();
+    const { updateStripeKey } = await import("#lib/db/settings.ts");
+    await updateStripeKey("sk_test_mock");
+  });
+
+  afterEach(async () => {
+    const mod = await import("#lib/stripe.ts");
+    mod.resetStripeClient();
+    resetDb();
+  });
+
+  test("createCheckoutSession delegates to stripe", async () => {
+    const { stripePaymentProvider } = await import("#lib/stripe-provider.ts");
+    const result = await stripePaymentProvider.createCheckoutSession({
+      lineItems: [{ name: "Provider Test", unitPrice: 2000, quantity: 1 }],
+      metadata: { source: "test" },
+      successUrl: "https://example.com/success",
+      cancelUrl: "https://example.com/cancel",
+      currency: "gbp",
+    });
+    expect(result).not.toBeNull();
+    if (result) {
+      expect(result.sessionId).toBeDefined();
+      expect(result.checkoutUrl).toBeDefined();
+    }
+  });
+
+  test("retrieveSession maps stripe session to PaymentSession", async () => {
+    const { stripePaymentProvider } = await import("#lib/stripe-provider.ts");
+    const { stripeApi } = await import("#lib/stripe.ts");
+
+    // Create session first
+    const created = await stripeApi.createCheckoutSession({
+      lineItems: [{ name: "Retrieve Prov", unitPrice: 1500, quantity: 1 }],
+      metadata: {},
+      successUrl: "https://example.com/success",
+      cancelUrl: "https://example.com/cancel",
+      currency: "gbp",
+    });
+    expect(created).not.toBeNull();
+
+    const session = await stripePaymentProvider.retrieveSession(created!.sessionId);
+    expect(session).not.toBeNull();
+    if (session) {
+      expect(session.id).toBe(created!.sessionId);
+      expect(session.status).toBeDefined();
+    }
+  });
+
+  test("listSessions returns paginated sessions", async () => {
+    const { stripePaymentProvider } = await import("#lib/stripe-provider.ts");
+    const result = await stripePaymentProvider.listSessions({ limit: 10 });
+    expect(result).toBeDefined();
+    expect(Array.isArray(result.sessions)).toBe(true);
+    expect(typeof result.hasMore).toBe("boolean");
+  });
+
+  test("retrieveSession returns null for non-existent session", async () => {
+    const { stripePaymentProvider } = await import("#lib/stripe-provider.ts");
+    const { stripeApi } = await import("#lib/stripe.ts");
+
+    // Mock retrieveCheckoutSession to return null (non-existent session)
+    await withMocks(
+      () => spyOn(stripeApi, "retrieveCheckoutSession").mockResolvedValue(null),
+      async () => {
+        const session = await stripePaymentProvider.retrieveSession("cs_nonexistent");
+        expect(session).toBeNull();
+      },
+    );
+  });
+
+  test("retrieveCheckoutSessionExpanded retrieves via stripe-mock", async () => {
+    const { stripeApi } = await import("#lib/stripe.ts");
+    const created = await stripeApi.createCheckoutSession({
+      lineItems: [{ name: "Expand Test", unitPrice: 800, quantity: 1 }],
+      metadata: {},
+      successUrl: "https://example.com/success",
+      cancelUrl: "https://example.com/cancel",
+      currency: "usd",
+    });
+    expect(created).not.toBeNull();
+
+    const expanded = await stripeApi.retrieveCheckoutSessionExpanded(created!.sessionId);
+    expect(expanded).not.toBeNull();
+    expect(expanded!.id).toBe(created!.sessionId);
+  });
+
+  test("wrapper retrieveCheckoutSessionExpanded delegates", async () => {
+    const { retrieveCheckoutSessionExpanded, stripeApi } = await import("#lib/stripe.ts");
+    const created = await stripeApi.createCheckoutSession({
+      lineItems: [{ name: "Wrapper Expand", unitPrice: 600, quantity: 1 }],
+      metadata: {},
+      successUrl: "https://example.com/success",
+      cancelUrl: "https://example.com/cancel",
+      currency: "usd",
+    });
+    expect(created).not.toBeNull();
+
+    const result = await retrieveCheckoutSessionExpanded(created!.sessionId);
+    expect(result).not.toBeNull();
+  });
+
+  test("retrieveCheckoutSession with expand param", async () => {
+    const { stripeApi } = await import("#lib/stripe.ts");
+    const created = await stripeApi.createCheckoutSession({
+      lineItems: [{ name: "Expand Param", unitPrice: 700, quantity: 1 }],
+      metadata: {},
+      successUrl: "https://example.com/success",
+      cancelUrl: "https://example.com/cancel",
+      currency: "usd",
+    });
+    expect(created).not.toBeNull();
+
+    const result = await stripeApi.retrieveCheckoutSession(created!.sessionId, ["line_items"]);
+    expect(result).not.toBeNull();
+    expect(result!.id).toBe(created!.sessionId);
+  });
+
+  test("retrieveSessionDetail maps expanded session to detail", async () => {
+    const { stripePaymentProvider } = await import("#lib/stripe-provider.ts");
+    const { stripeApi } = await import("#lib/stripe.ts");
+
+    const created = await stripeApi.createCheckoutSession({
+      lineItems: [{ name: "Detail Test", unitPrice: 1200, quantity: 2 }],
+      metadata: { order_ref: "test123" },
+      successUrl: "https://example.com/success",
+      cancelUrl: "https://example.com/cancel",
+      currency: "gbp",
+    });
+    expect(created).not.toBeNull();
+
+    const detail = await stripePaymentProvider.retrieveSessionDetail(created!.sessionId);
+    expect(detail).not.toBeNull();
+    if (detail) {
+      expect(detail.id).toBe(created!.sessionId);
+      expect(detail.providerType).toBe("stripe");
+      expect(detail.dashboardUrl).toContain("dashboard.stripe.com");
+      expect(detail.dashboardUrl).toContain(created!.sessionId);
+      expect(Array.isArray(detail.lineItems)).toBe(true);
+      expect(typeof detail.metadata).toBe("object");
+    }
+  });
+
+  test("retrieveSessionDetail returns null for non-existent session", async () => {
+    const { stripePaymentProvider } = await import("#lib/stripe-provider.ts");
+    const { stripeApi } = await import("#lib/stripe.ts");
+
+    await withMocks(
+      () => spyOn(stripeApi, "retrieveCheckoutSessionExpanded").mockResolvedValue(null),
+      async () => {
+        const detail = await stripePaymentProvider.retrieveSessionDetail("cs_missing");
+        expect(detail).toBeNull();
+      },
+    );
+  });
+
+  test("retrieveSessionDetail shows refunded status when charge is refunded", async () => {
+    const { stripePaymentProvider } = await import("#lib/stripe-provider.ts");
+    const { stripeApi } = await import("#lib/stripe.ts");
+
+    await withMocks(
+      () => spyOn(stripeApi, "retrieveCheckoutSessionExpanded").mockResolvedValue({
+        id: "cs_refund_test",
+        payment_status: "paid",
+        amount_total: 2000,
+        currency: "gbp",
+        customer_details: null,
+        created: Math.floor(Date.now() / 1000),
+        url: null,
+        payment_intent: {
+          id: "pi_refund_test",
+          latest_charge: { refunded: true },
+        },
+        line_items: { data: [] },
+        metadata: {},
+      } as unknown as import("stripe").Stripe.Checkout.Session),
+      async () => {
+        const detail = await stripePaymentProvider.retrieveSessionDetail("cs_refund_test");
+        expect(detail).not.toBeNull();
+        expect(detail!.status).toBe("refunded");
+        expect(detail!.paymentReference).toBe("pi_refund_test");
+      },
+    );
+  });
+
+  test("retrieveSessionDetail keeps paid status when charge is not refunded", async () => {
+    const { stripePaymentProvider } = await import("#lib/stripe-provider.ts");
+    const { stripeApi } = await import("#lib/stripe.ts");
+
+    await withMocks(
+      () => spyOn(stripeApi, "retrieveCheckoutSessionExpanded").mockResolvedValue({
+        id: "cs_not_refunded",
+        payment_status: "paid",
+        amount_total: 1500,
+        currency: "gbp",
+        customer_details: null,
+        created: Math.floor(Date.now() / 1000),
+        url: null,
+        payment_intent: {
+          id: "pi_not_refunded",
+          latest_charge: { refunded: false },
+        },
+        line_items: { data: [] },
+        metadata: {},
+      } as unknown as import("stripe").Stripe.Checkout.Session),
+      async () => {
+        const detail = await stripePaymentProvider.retrieveSessionDetail("cs_not_refunded");
+        expect(detail).not.toBeNull();
+        expect(detail!.status).toBe("paid");
+        expect(detail!.paymentReference).toBe("pi_not_refunded");
+      },
+    );
+  });
+});

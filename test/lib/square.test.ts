@@ -423,3 +423,303 @@ describe("square", () => {
     });
   });
 });
+
+describe("square API operations (mocked)", () => {
+  const createSquareMockClient = () => {
+    const paymentLinksCreate = jest.fn();
+    const ordersGet = jest.fn();
+    const ordersSearch = jest.fn();
+    const paymentsGet = jest.fn();
+    const refundsRefundPayment = jest.fn();
+
+    return {
+      client: {
+        checkout: { paymentLinks: { create: paymentLinksCreate } },
+        orders: { get: ordersGet, search: ordersSearch },
+        payments: { get: paymentsGet },
+        refunds: { refundPayment: refundsRefundPayment },
+      },
+      paymentLinksCreate,
+      ordersGet,
+      ordersSearch,
+      paymentsGet,
+      refundsRefundPayment,
+    };
+  };
+
+  beforeEach(async () => {
+    const { resetSquareClient } = await import("#lib/square.ts");
+    resetSquareClient();
+    await createTestDb();
+    const { updateSquareAccessToken, updateSquareLocationId } = await import("#lib/db/settings.ts");
+    await updateSquareAccessToken("EAAAl_test_square_mock");
+    await updateSquareLocationId("LOC_TEST_123");
+  });
+
+  afterEach(async () => {
+    const mod = await import("#lib/square.ts");
+    mod.resetSquareClient();
+    resetDb();
+  });
+
+  test("createCheckoutSession creates payment link", async () => {
+    const { squareApi } = await import("#lib/square.ts");
+    const mock = createSquareMockClient();
+    mock.paymentLinksCreate.mockResolvedValue({
+      paymentLink: {
+        url: "https://square.link/test",
+        orderId: "order_test_123",
+      },
+    });
+
+    await withMocks(
+      () => spyOn(squareApi, "getSquareClient").mockResolvedValue(mock.client),
+      async () => {
+        const result = await squareApi.createCheckoutSession({
+          lineItems: [{ name: "Square Item", unitPrice: 1000, quantity: 2 }],
+          metadata: { source: "test" },
+          successUrl: "https://example.com/success",
+          cancelUrl: "https://example.com/cancel",
+          currency: "GBP",
+        });
+        expect(result).not.toBeNull();
+        expect(result!.sessionId).toBe("order_test_123");
+        expect(result!.checkoutUrl).toBe("https://square.link/test");
+      },
+    );
+  });
+
+  test("createCheckoutSession returns null when no location ID", async () => {
+    const { squareApi } = await import("#lib/square.ts");
+    // Clear location ID
+    const { getDb } = await import("#lib/db/client.ts");
+    await getDb().execute({ sql: "DELETE FROM settings WHERE key = 'square_location_id'", args: [] });
+
+    const mock = createSquareMockClient();
+    await withMocks(
+      () => spyOn(squareApi, "getSquareClient").mockResolvedValue(mock.client),
+      async () => {
+        const result = await squareApi.createCheckoutSession({
+          lineItems: [{ name: "No Location", unitPrice: 100, quantity: 1 }],
+          metadata: {},
+          successUrl: "https://example.com/success",
+          cancelUrl: "https://example.com/cancel",
+          currency: "GBP",
+        });
+        expect(result).toBeNull();
+      },
+    );
+  });
+
+  test("createCheckoutSession returns null when link has no URL", async () => {
+    const { squareApi } = await import("#lib/square.ts");
+    const mock = createSquareMockClient();
+    mock.paymentLinksCreate.mockResolvedValue({
+      paymentLink: { url: null, orderId: null },
+    });
+
+    await withMocks(
+      () => spyOn(squareApi, "getSquareClient").mockResolvedValue(mock.client),
+      async () => {
+        const result = await squareApi.createCheckoutSession({
+          lineItems: [{ name: "No URL", unitPrice: 100, quantity: 1 }],
+          metadata: {},
+          successUrl: "https://example.com/success",
+          cancelUrl: "https://example.com/cancel",
+          currency: "GBP",
+        });
+        expect(result).toBeNull();
+      },
+    );
+  });
+
+  test("retrieveOrder returns mapped order", async () => {
+    const { squareApi } = await import("#lib/square.ts");
+    const mock = createSquareMockClient();
+    mock.ordersGet.mockResolvedValue({
+      order: {
+        id: "order_retrieved",
+        state: "COMPLETED",
+        metadata: { key: "value", num: "42" },
+        tenders: [{ id: "tender_1", paymentId: "pay_1" }],
+      },
+    });
+
+    await withMocks(
+      () => spyOn(squareApi, "getSquareClient").mockResolvedValue(mock.client),
+      async () => {
+        const result = await squareApi.retrieveOrder("order_retrieved");
+        expect(result).not.toBeNull();
+        expect(result!.id).toBe("order_retrieved");
+        expect(result!.state).toBe("COMPLETED");
+        expect(result!.metadata).toEqual({ key: "value", num: "42" });
+        expect(result!.tenders![0]!.paymentId).toBe("pay_1");
+      },
+    );
+  });
+
+  test("retrieveOrder returns null when no order", async () => {
+    const { squareApi } = await import("#lib/square.ts");
+    const mock = createSquareMockClient();
+    mock.ordersGet.mockResolvedValue({ order: null });
+
+    await withMocks(
+      () => spyOn(squareApi, "getSquareClient").mockResolvedValue(mock.client),
+      async () => {
+        const result = await squareApi.retrieveOrder("order_missing");
+        expect(result).toBeNull();
+      },
+    );
+  });
+
+  test("searchOrders returns orders with pagination", async () => {
+    const { squareApi } = await import("#lib/square.ts");
+    const mock = createSquareMockClient();
+    mock.ordersSearch.mockResolvedValue({
+      orders: [
+        { id: "order_1", state: "COMPLETED", metadata: { k: "v" } },
+        { id: "order_2", state: "OPEN" },
+      ],
+      cursor: "next_cursor",
+    });
+
+    await withMocks(
+      () => spyOn(squareApi, "getSquareClient").mockResolvedValue(mock.client),
+      async () => {
+        const result = await squareApi.searchOrders({ limit: 10 });
+        expect(result).not.toBeNull();
+        expect(result!.orders.length).toBe(2);
+        expect(result!.hasMore).toBe(true);
+        expect(result!.cursor).toBe("next_cursor");
+      },
+    );
+  });
+
+  test("searchOrders with cursor parameter", async () => {
+    const { squareApi } = await import("#lib/square.ts");
+    const mock = createSquareMockClient();
+    mock.ordersSearch.mockResolvedValue({
+      orders: [],
+      cursor: undefined,
+    });
+
+    await withMocks(
+      () => spyOn(squareApi, "getSquareClient").mockResolvedValue(mock.client),
+      async () => {
+        const result = await squareApi.searchOrders({ limit: 5, cursor: "prev_cursor" });
+        expect(result).not.toBeNull();
+        expect(result!.orders.length).toBe(0);
+        expect(result!.hasMore).toBe(false);
+      },
+    );
+  });
+
+  test("searchOrders handles null orders from SDK", async () => {
+    const { squareApi } = await import("#lib/square.ts");
+    const mock = createSquareMockClient();
+    mock.ordersSearch.mockResolvedValue({
+      orders: null,
+      cursor: undefined,
+    });
+
+    await withMocks(
+      () => spyOn(squareApi, "getSquareClient").mockResolvedValue(mock.client),
+      async () => {
+        const result = await squareApi.searchOrders({ limit: 10 });
+        expect(result).not.toBeNull();
+        expect(result!.orders.length).toBe(0);
+        expect(result!.hasMore).toBe(false);
+      },
+    );
+  });
+
+  test("searchOrders returns empty when no location ID", async () => {
+    const { squareApi } = await import("#lib/square.ts");
+    const { getDb } = await import("#lib/db/client.ts");
+    await getDb().execute({ sql: "DELETE FROM settings WHERE key = 'square_location_id'", args: [] });
+
+    const mock = createSquareMockClient();
+    await withMocks(
+      () => spyOn(squareApi, "getSquareClient").mockResolvedValue(mock.client),
+      async () => {
+        const result = await squareApi.searchOrders({ limit: 10 });
+        expect(result).not.toBeNull();
+        expect(result!.orders.length).toBe(0);
+        expect(result!.hasMore).toBe(false);
+      },
+    );
+  });
+
+  test("toSquareOrder handles tenders with null paymentId", async () => {
+    const { squareApi } = await import("#lib/square.ts");
+    const mock = createSquareMockClient();
+    mock.ordersGet.mockResolvedValue({
+      order: {
+        id: "order_null_tender",
+        state: "OPEN",
+        tenders: [{ id: "tender_1", paymentId: null }],
+      },
+    });
+
+    await withMocks(
+      () => spyOn(squareApi, "getSquareClient").mockResolvedValue(mock.client),
+      async () => {
+        const result = await squareApi.retrieveOrder("order_null_tender");
+        expect(result!.tenders![0]!.paymentId).toBeUndefined();
+      },
+    );
+  });
+
+  test("toSquareOrder handles no metadata", async () => {
+    const { squareApi } = await import("#lib/square.ts");
+    const mock = createSquareMockClient();
+    mock.ordersGet.mockResolvedValue({
+      order: {
+        id: "order_no_meta",
+        state: "OPEN",
+      },
+    });
+
+    await withMocks(
+      () => spyOn(squareApi, "getSquareClient").mockResolvedValue(mock.client),
+      async () => {
+        const result = await squareApi.retrieveOrder("order_no_meta");
+        expect(result!.metadata).toBeUndefined();
+      },
+    );
+  });
+
+  // Wrapper function coverage (lines 276-281)
+  test("wrapper exports delegate to squareApi", async () => {
+    const { createCheckoutSession, retrieveOrder, searchOrders } = await import("#lib/square.ts");
+    const mock = createSquareMockClient();
+    mock.paymentLinksCreate.mockResolvedValue({
+      paymentLink: { url: "https://square.link/w", orderId: "wrapper_order" },
+    });
+    mock.ordersGet.mockResolvedValue({
+      order: { id: "wrapper_order", state: "OPEN" },
+    });
+    mock.ordersSearch.mockResolvedValue({ orders: [], cursor: undefined });
+
+    const { squareApi } = await import("#lib/square.ts");
+    await withMocks(
+      () => spyOn(squareApi, "getSquareClient").mockResolvedValue(mock.client),
+      async () => {
+        const checkoutResult = await createCheckoutSession({
+          lineItems: [{ name: "W", unitPrice: 100, quantity: 1 }],
+          metadata: {},
+          successUrl: "https://e.com/s",
+          cancelUrl: "https://e.com/c",
+          currency: "GBP",
+        });
+        expect(checkoutResult).not.toBeNull();
+
+        const orderResult = await retrieveOrder("wrapper_order");
+        expect(orderResult).not.toBeNull();
+
+        const searchResult = await searchOrders({ limit: 5 });
+        expect(searchResult).not.toBeNull();
+      },
+    );
+  });
+});

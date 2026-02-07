@@ -5,6 +5,7 @@ import { handleRequest } from "#routes";
 import {
   awaitTestRequest,
   createTestDbWithSetup,
+  invalidateTestDbCache,
   mockFormRequest,
   mockRequest,
   resetDb,
@@ -911,6 +912,74 @@ describe("server (admin settings)", () => {
       expect(response.status).toBe(200);
       const html = await response.text();
       expect(html).toContain("currently configured");
+    });
+  });
+
+  describe("POST /admin/settings/allowed-origins", () => {
+    test("updates setting", async () => {
+      const { cookie, csrfToken } = await loginAsAdmin();
+      const response = await handleRequest(
+        mockFormRequest(
+          "/admin/settings/allowed-origins",
+          {
+            allowed_origins: "https://shop.example.com, https://staging.shop.com",
+            csrf_token: csrfToken,
+          },
+          cookie,
+        ),
+      );
+      expect(response.status).toBe(302);
+      expect(response.headers.get("location")).toContain("/admin/settings");
+      expect(response.headers.get("location")).toContain("success=");
+    });
+  });
+
+  describe("POST /admin/settings/currency", () => {
+    test("valid currency code exercises parseCurrency", async () => {
+      const { cookie, csrfToken } = await loginAsAdmin();
+      const response = await handleRequest(
+        mockFormRequest(
+          "/admin/settings/currency",
+          { currency_code: "EUR", csrf_token: csrfToken },
+          cookie,
+        ),
+      );
+      expect(response.status).toBe(302);
+      expect(response.headers.get("location")).toContain("success=");
+    });
+
+    test("invalid currency code returns error", async () => {
+      const { cookie, csrfToken } = await loginAsAdmin();
+      const response = await handleRequest(
+        mockFormRequest(
+          "/admin/settings/currency",
+          { currency_code: "toolong", csrf_token: csrfToken },
+          cookie,
+        ),
+      );
+      expect(response.status).toBe(400);
+    });
+  });
+
+  describe("POST /admin/settings/reset-database (cache invalidation)", () => {
+    afterEach(() => {
+      invalidateTestDbCache();
+    });
+
+    test("resets and redirects to setup", async () => {
+      const { cookie, csrfToken } = await loginAsAdmin();
+      const response = await handleRequest(
+        mockFormRequest(
+          "/admin/settings/reset-database",
+          {
+            confirm_phrase: "The site will be fully reset and all data will be lost.",
+            csrf_token: csrfToken,
+          },
+          cookie,
+        ),
+      );
+      expect(response.status).toBe(302);
+      expect(response.headers.get("location")).toBe("/setup/");
     });
   });
 

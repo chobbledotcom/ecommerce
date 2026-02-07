@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "#test-compat";
 import { handleRequest } from "#routes";
 import {
+  awaitTestRequest,
   createTestDb,
   createTestDbWithSetup,
   loginAsAdmin,
@@ -8,6 +9,7 @@ import {
   mockRequest,
   mockRequestWithHost,
   resetDb,
+  expectAdminRedirect,
 } from "#test-utils";
 
 describe("server (misc)", () => {
@@ -295,6 +297,121 @@ describe("server (misc)", () => {
         mockRequest("/this-path-definitely-does-not-exist-anywhere"),
       );
       expect(response.status).toBe(404);
+    });
+  });
+
+  describe("CSS and favicon", () => {
+    test("GET /mvp.css returns CSS content", async () => {
+      const response = await handleRequest(mockRequest("/mvp.css"));
+      expect(response.status).toBe(200);
+      expect(response.headers.get("content-type")).toContain("text/css");
+      expect(response.headers.get("cache-control")).toContain("immutable");
+      const body = await response.text();
+      expect(body.length).toBeGreaterThan(0);
+    });
+
+    test("GET /favicon.ico returns SVG", async () => {
+      const response = await handleRequest(mockRequest("/favicon.ico"));
+      expect(response.status).toBe(200);
+      expect(response.headers.get("content-type")).toContain("image/svg+xml");
+      expect(response.headers.get("cache-control")).toContain("immutable");
+      const body = await response.text();
+      expect(body).toContain("<svg");
+    });
+  });
+
+  describe("activity log", () => {
+    test("GET /admin/log shows activity log when authenticated", async () => {
+      const { cookie } = await loginAsAdmin();
+      // Log some activity
+      const { logActivity } = await import("#lib/db/activityLog.ts");
+      await logActivity("Test activity entry");
+
+      const response = await awaitTestRequest("/admin/log", { cookie });
+      expect(response.status).toBe(200);
+      const html = await response.text();
+      expect(html).toContain("Test activity entry");
+    });
+
+    test("GET /admin/log redirects when not authenticated", async () => {
+      const response = await handleRequest(mockRequest("/admin/log"));
+      expectAdminRedirect(response);
+    });
+
+    test("GET /admin/log truncates long log", async () => {
+      const { cookie } = await loginAsAdmin();
+      const { logActivity } = await import("#lib/db/activityLog.ts");
+      // Log enough entries to exceed 200 limit
+      for (let i = 0; i < 202; i++) {
+        await logActivity(`Entry ${i}`);
+      }
+
+      const response = await awaitTestRequest("/admin/log", { cookie });
+      expect(response.status).toBe(200);
+      const html = await response.text();
+      expect(html).toContain("Showing the most recent");
+    });
+  });
+
+  describe("activity log ordering and listing", () => {
+    test("shows entries in reverse chronological order via /admin/log", async () => {
+      const { cookie } = await loginAsAdmin();
+      const { logActivity } = await import("#lib/db/activityLog.ts");
+      await logActivity("First");
+      await logActivity("Second");
+
+      const response = await awaitTestRequest("/admin/log", { cookie });
+      expect(response.status).toBe(200);
+      const html = await response.text();
+      expect(html).toContain("Second");
+      expect(html).toContain("First");
+      const secondIndex = html.indexOf("Second");
+      const firstIndex = html.indexOf("First");
+      expect(secondIndex).toBeLessThan(firstIndex);
+    });
+
+    test("shows all logged items on the log page", async () => {
+      const { cookie } = await loginAsAdmin();
+      const { logActivity } = await import("#lib/db/activityLog.ts");
+      await logActivity("Alpha");
+      await logActivity("Beta");
+      await logActivity("Gamma");
+
+      const response = await awaitTestRequest("/admin/log", { cookie });
+      expect(response.status).toBe(200);
+      const html = await response.text();
+      expect(html).toContain("Alpha");
+      expect(html).toContain("Beta");
+      expect(html).toContain("Gamma");
+    });
+  });
+
+  describe("jsonErrorResponse and getBaseUrl", () => {
+    test("jsonErrorResponse returns JSON error with correct status", async () => {
+      const { jsonErrorResponse } = await import("#routes/utils.ts");
+      const response = jsonErrorResponse("Something went wrong", 422);
+      expect(response.status).toBe(422);
+      const data = await response.json();
+      expect(data.error).toBe("Something went wrong");
+      expect(response.headers.get("content-type")).toContain("application/json");
+    });
+
+    test("jsonErrorResponse defaults to 400 status", async () => {
+      const { jsonErrorResponse } = await import("#routes/utils.ts");
+      const response = jsonErrorResponse("Bad request");
+      expect(response.status).toBe(400);
+    });
+
+    test("getBaseUrl extracts protocol and host", async () => {
+      const { getBaseUrl } = await import("#routes/utils.ts");
+      const request = new Request("http://example.com:3000/some/path?q=1");
+      expect(getBaseUrl(request)).toBe("http://example.com:3000");
+    });
+
+    test("getBaseUrl handles https", async () => {
+      const { getBaseUrl } = await import("#routes/utils.ts");
+      const request = new Request("https://secure.example.com/path");
+      expect(getBaseUrl(request)).toBe("https://secure.example.com");
     });
   });
 

@@ -2,6 +2,7 @@ import { describe, expect, test } from "#test-compat";
 import {
   createWithClient,
   safeAsync,
+  toSessionListResult,
 } from "#lib/payment-helpers.ts";
 import { ErrorCode } from "#lib/logger.ts";
 
@@ -73,5 +74,17 @@ describe("payment-helpers", () => {
       expect(result).toBeNull();
     });
 
+  });
+
+  describe("toSessionListResult", () => {
+    test("returns empty result when items are undefined", () => {
+      const result = toSessionListResult(
+        { hasMore: true },
+        undefined,
+        () => ({ id: "", status: "", amount: null, currency: null, customerEmail: null, created: "", url: null }),
+      );
+      expect(result.sessions).toEqual([]);
+      expect(result.hasMore).toBe(false);
+    });
   });
 });

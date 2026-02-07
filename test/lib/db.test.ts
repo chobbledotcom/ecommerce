@@ -33,6 +33,7 @@ import {
 import { getUserByUsername, verifyUserPassword } from "#lib/db/users.ts";
 import {
   createTestDbWithSetup,
+  createTestProduct,
   resetDb,
   TEST_ADMIN_PASSWORD,
   TEST_ADMIN_USERNAME,
@@ -638,6 +639,228 @@ describe("db", () => {
       // Verify no user was created
       const rows = await getDb().execute("SELECT COUNT(*) as count FROM users");
       expect((rows.rows[0] as unknown as { count: number }).count).toBe(0);
+    });
+  });
+
+
+  describe("initDb idempotent", () => {
+    test("initDb is idempotent - second call is a no-op", async () => {
+      // First initDb already ran in createTestDbWithSetup, run again
+      await initDb(); // Should be a no-op due to isDbUpToDate check
+      // Verify settings are still intact
+      const result = await getDb().execute(
+        "SELECT value FROM settings WHERE key = 'latest_db_update'",
+      );
+      expect(result.rows.length).toBe(1);
+    });
+  });
+
+  describe("table CRUD operations", () => {
+    test("findAll returns all rows", async () => {
+      const { productsTable } = await import("#lib/db/products.ts");
+      await createTestProduct({ sku: "ALL-1" });
+      await createTestProduct({ sku: "ALL-2" });
+      const all = await productsTable.findAll();
+      expect(all.length).toBe(2);
+    });
+
+    test("findById returns null for non-existent row", async () => {
+      const { productsTable } = await import("#lib/db/products.ts");
+      const result = await productsTable.findById(99999);
+      expect(result).toBeNull();
+    });
+
+    test("update returns null for non-existent row", async () => {
+      const { productsTable } = await import("#lib/db/products.ts");
+      const result = await productsTable.update(99999, { name: "Nope" });
+      expect(result).toBeNull();
+    });
+
+    test("update with no fields returns current row", async () => {
+      const product = await createTestProduct({ sku: "NOOP-1" });
+      const { productsTable } = await import("#lib/db/products.ts");
+      const result = await productsTable.update(product.id, {});
+      expect(result).not.toBeNull();
+      expect(result!.sku).toBe("NOOP-1");
+    });
+
+    test("update modifies specific fields", async () => {
+      const product = await createTestProduct({ sku: "UPD-TBL", name: "Old" });
+      const { productsTable } = await import("#lib/db/products.ts");
+      const result = await productsTable.update(product.id, { name: "New" });
+      expect(result).not.toBeNull();
+      expect(result!.name).toBe("New");
+      expect(result!.sku).toBe("UPD-TBL");
+    });
+
+    test("deleteById removes a row", async () => {
+      const product = await createTestProduct({ sku: "DEL-TBL" });
+      const { productsTable } = await import("#lib/db/products.ts");
+      await productsTable.deleteById(product.id);
+      const result = await productsTable.findById(product.id);
+      expect(result).toBeNull();
+    });
+
+    test("table with encrypted columns encrypts and decrypts", async () => {
+      const { logActivity, getAllActivityLog } = await import("#lib/db/activityLog.ts");
+      await logActivity("Secret message");
+      const entries = await getAllActivityLog();
+      expect(entries[0]!.message).toBe("Secret message");
+    });
+
+    test("toDbValues applies defaults and write transforms", async () => {
+      const { productsTable } = await import("#lib/db/products.ts");
+      const dbValues = await productsTable.toDbValues({
+        sku: "TV-1",
+        name: "Test",
+        unitPrice: 100,
+      } as { sku: string; name: string; unitPrice: number });
+      expect(dbValues.sku).toBe("TV-1");
+      expect(dbValues.name).toBe("Test");
+      expect(dbValues.unit_price).toBe(100);
+      // Default fields should have values
+      expect(dbValues.description).toBe("");
+      expect(dbValues.stock).toBe(0);
+      expect(dbValues.active).toBe(1);
+      expect(dbValues.created).toBeDefined();
+    });
+
+    test("col helpers work correctly", async () => {
+      const { col, defineTable } = await import("#lib/db/table.ts");
+
+      // Create a simple test table
+      await getDb().execute(`
+        CREATE TABLE IF NOT EXISTS test_items (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          name TEXT NOT NULL,
+          created TEXT NOT NULL
+        )
+      `);
+
+      const testTable = defineTable<
+        { id: number; name: string; created: string },
+        { name: string; created?: string }
+      >({
+        name: "test_items",
+        primaryKey: "id",
+        schema: {
+          id: col.generated<number>(),
+          name: col.simple<string>(),
+          created: col.timestamp(),
+        },
+      });
+
+      const item = await testTable.insert({ name: "Test Item" });
+      expect(item.id).toBe(1);
+      expect(item.name).toBe("Test Item");
+      expect(item.created).toBeDefined();
+
+      // Test findById
+      const found = await testTable.findById(1);
+      expect(found).not.toBeNull();
+      expect(found!.name).toBe("Test Item");
+
+      // Test findAll
+      await testTable.insert({ name: "Second Item" });
+      const all = await testTable.findAll();
+      expect(all.length).toBe(2);
+
+      // Test deleteById
+      await testTable.deleteById(1);
+      const deleted = await testTable.findById(1);
+      expect(deleted).toBeNull();
+    });
+
+    test("getReturnValue returns null for column not in input or dbValues", async () => {
+      const { col, defineTable } = await import("#lib/db/table.ts");
+
+      await getDb().execute(`
+        CREATE TABLE IF NOT EXISTS test_nullable_items (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          name TEXT NOT NULL,
+          optional_field TEXT
+        )
+      `);
+
+      const nullableTable = defineTable<
+        { id: number; name: string; optional_field: string | null },
+        { name: string; optional_field?: string | null }
+      >({
+        name: "test_nullable_items",
+        primaryKey: "id",
+        schema: {
+          id: col.generated<number>(),
+          name: col.simple<string>(),
+          optional_field: col.simple<string | null>(),
+        },
+      });
+
+      // Insert without optional_field — getReturnValue should return null
+      const item = await nullableTable.insert({ name: "Null Test" } as { name: string; optional_field?: string | null });
+      expect(item.name).toBe("Null Test");
+      expect(item.optional_field).toBeNull();
+    });
+
+    test("reservationsTable.insert uses withDefault for status", async () => {
+      // This directly exercises the col.withDefault path on reservations.ts:31
+      const { reservationsTable } = await import("#lib/db/reservations.ts");
+      const product = await createTestProduct({ stock: 100 });
+      const reservation = await reservationsTable.insert({
+        productId: product.id,
+        quantity: 1,
+        providerSessionId: "direct_insert_test",
+      } as { productId: number; quantity: number; providerSessionId: string });
+      expect(reservation.status).toBe("pending");
+    });
+
+    test("col.encryptedNullable handles null values", async () => {
+      const { col } = await import("#lib/db/table.ts");
+      const encFn = (v: string) => `enc_${v}`;
+      const decFn = (v: string) => v.replace("enc_", "");
+      const def = col.encryptedNullable(encFn, decFn);
+      // Write null
+      const writeResult = await def.write!(null);
+      expect(writeResult).toBeNull();
+      // Read null
+      const readResult = await def.read!(null);
+      expect(readResult).toBeNull();
+      // Write non-null
+      const writeResult2 = await def.write!("hello");
+      expect(writeResult2).toBe("enc_hello");
+      // Read non-null
+      const readResult2 = await def.read!("enc_hello");
+      expect(readResult2).toBe("hello");
+    });
+
+    test("col.transform creates custom read/write transforms", async () => {
+      const { col } = await import("#lib/db/table.ts");
+      const def = col.transform(
+        (v: number) => v * 100,
+        (v: number) => v / 100,
+      );
+      expect(def.write!(5)).toBe(500);
+      expect(def.read!(500)).toBe(5);
+    });
+  });
+
+  describe("toSnakeCase and resolveValue", () => {
+    test("toSnakeCase converts camelCase", async () => {
+      const { toSnakeCase } = await import("#lib/db/table.ts");
+      expect(toSnakeCase("myField")).toBe("my_field");
+      expect(toSnakeCase("anotherFieldName")).toBe("another_field_name");
+      expect(toSnakeCase("simple")).toBe("simple");
+    });
+
+    test("table insert handles missing optional fields with null fallback", async () => {
+      // Insert a product with only required fields - optional ones should get defaults or null
+      const { productsTable } = await import("#lib/db/products.ts");
+      const product = await productsTable.insert({
+        name: "Minimal",
+        sku: "MIN-1",
+        unitPrice: 100,
+      } as Parameters<typeof productsTable.insert>[0]);
+      expect(product.name).toBe("Minimal");
+      expect(product.sku).toBe("MIN-1");
     });
   });
 });

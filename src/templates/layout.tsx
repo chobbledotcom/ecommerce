@@ -7,12 +7,6 @@ import { type Child, SafeHtml } from "#jsx/jsx-runtime.ts";
 /** CSS stylesheet path */
 const CSS_PATH = "/mvp.css";
 
-export const escapeHtml = (str: string): string =>
-  str
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
 
 interface LayoutProps {
   title: string;
