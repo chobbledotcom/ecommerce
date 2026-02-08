@@ -31,7 +31,7 @@ const handleAdminSessionsGet = (request: Request): Promise<Response> =>
  * Handle POST /admin/sessions (log out of all other sessions)
  */
 const handleAdminSessionsPost = (request: Request): Promise<Response> =>
-  withOwnerAuthForm(request, async (session) => {
+  withOwnerAuthForm(request, async ({ session }) => {
     await deleteOtherSessions(session.token);
     return redirectWithSuccess("/admin/sessions", "Logged out of all other sessions");
   });

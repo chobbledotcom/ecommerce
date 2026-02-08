@@ -75,7 +75,7 @@ const handleRefund = (
   request: Request,
   params: Record<string, string | undefined>,
 ): Promise<Response> =>
-  withAuthForm(request, async (session, form) => {
+  withAuthForm(request, async ({ session, form }) => {
     const orderRef = params.orderRef!;
 
     const provider = await getActivePaymentProvider();

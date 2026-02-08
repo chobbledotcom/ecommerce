@@ -61,7 +61,7 @@ const handleNewProductGet = (request: Request): Promise<Response> =>
  * POST /admin/product/new — create product
  */
 const handleNewProductPost = (request: Request): Promise<Response> =>
-  withAuthForm(request, async (session, form) => {
+  withAuthForm(request, async ({ session, form }) => {
     const validation = parseProductForm(form);
     if (!validation.valid) {
       return htmlResponse(adminProductFormPage(session, {}, validation.error), 400);
@@ -105,7 +105,7 @@ const handleEditProductGet = (request: Request, path: string): Promise<Response>
  * POST /admin/product/:id — update product
  */
 const handleUpdateProduct = (request: Request, path: string): Promise<Response> =>
-  withAuthForm(request, async (session, form) => {
+  withAuthForm(request, async ({ session, form }) => {
     const productId = parseProductId(path);
     if (!productId) return htmlResponse("Not found", 404);
 
@@ -140,7 +140,7 @@ const handleUpdateProduct = (request: Request, path: string): Promise<Response> 
  * POST /admin/product/:id/delete — delete product
  */
 const handleDeleteProduct = (request: Request, path: string): Promise<Response> =>
-  withAuthForm(request, async (_session, _form) => {
+  withAuthForm(request, async () => {
     const productId = parseProductId(path);
     if (!productId) return htmlResponse("Not found", 404);
 

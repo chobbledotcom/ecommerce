@@ -85,7 +85,7 @@ const handleUsersGet = (request: Request): Promise<Response> =>
  * Handle POST /admin/users - create invited user
  */
 const handleUsersPost = (request: Request): Promise<Response> =>
-  withOwnerAuthForm(request, async (session, form) => {
+  withOwnerAuthForm(request, async ({ session, form }) => {
     const validation = parseInviteUserForm(form);
     if (!validation.valid) {
       return htmlResponse(
@@ -133,7 +133,7 @@ const handleUserActivate = (
   request: Request,
   params: RouteParams,
 ): Promise<Response> =>
-  withOwnerAuthForm(request, async (session) => {
+  withOwnerAuthForm(request, async ({ session }) => {
     const userId = Number(params.id);
     const user = await getUserById(userId);
 
@@ -202,7 +202,7 @@ const handleUserDelete = (
   request: Request,
   params: RouteParams,
 ): Promise<Response> =>
-  withOwnerAuthForm(request, async (session) => {
+  withOwnerAuthForm(request, async ({ session }) => {
     const userId = Number(params.id);
     const user = await getUserById(userId);
 

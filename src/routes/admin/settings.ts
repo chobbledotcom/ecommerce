@@ -104,7 +104,7 @@ const handleAdminSettingsGet = (request: Request): Promise<Response> =>
  * Handle POST /admin/settings - change password (owner only)
  */
 const handleAdminSettingsPost = (request: Request): Promise<Response> =>
-  withOwnerAuthForm(request, async (session, form) => {
+  withOwnerAuthForm(request, async ({ session, form }) => {
     const settingsPageWithError = async (error: string, status: number) =>
       htmlResponse(await renderSettingsPage(session, error), status);
 
@@ -144,7 +144,7 @@ const VALID_PROVIDERS: ReadonlySet<string> = new Set<PaymentProviderType>([
  * Handle POST /admin/settings/payment-provider - owner only
  */
 const handlePaymentProviderPost = (request: Request): Promise<Response> =>
-  withOwnerAuthForm(request, async (session, form) => {
+  withOwnerAuthForm(request, async ({ session, form }) => {
     const settingsPageWithError = async (error: string, status: number) =>
       htmlResponse(await renderSettingsPage(session, error), status);
 
@@ -168,7 +168,7 @@ const handlePaymentProviderPost = (request: Request): Promise<Response> =>
  * Handle POST /admin/settings/stripe - owner only
  */
 const handleAdminStripePost = (request: Request): Promise<Response> =>
-  withOwnerAuthForm(request, async (session, form) => {
+  withOwnerAuthForm(request, async ({ session, form }) => {
     const settingsPageWithError = async (error: string, status: number) =>
       htmlResponse(await renderSettingsPage(session, error), status);
 
@@ -198,7 +198,7 @@ const handleAdminStripePost = (request: Request): Promise<Response> =>
 
     // Store both the Stripe key and webhook config
     await updateStripeKey(stripeSecretKey);
-    await setStripeWebhookConfig(webhookResult.secret, webhookResult.endpointId);
+    await setStripeWebhookConfig(webhookResult);
 
     // Auto-set payment provider to stripe when key is configured
     await setPaymentProvider("stripe");
@@ -213,7 +213,7 @@ const handleAdminStripePost = (request: Request): Promise<Response> =>
  * Handle POST /admin/settings/square - owner only
  */
 const handleAdminSquarePost = (request: Request): Promise<Response> =>
-  withOwnerAuthForm(request, async (session, form) => {
+  withOwnerAuthForm(request, async ({ session, form }) => {
     const settingsPageWithError = async (error: string, status: number) =>
       htmlResponse(await renderSettingsPage(session, error), status);
 
@@ -235,7 +235,7 @@ const handleAdminSquarePost = (request: Request): Promise<Response> =>
  * Handle POST /admin/settings/square-webhook - owner only
  */
 const handleAdminSquareWebhookPost = (request: Request): Promise<Response> =>
-  withOwnerAuthForm(request, async (session, form) => {
+  withOwnerAuthForm(request, async ({ session, form }) => {
     const settingsPageWithError = async (error: string, status: number) =>
       htmlResponse(await renderSettingsPage(session, error), status);
 
@@ -273,7 +273,7 @@ const RESET_DATABASE_PHRASE =
  * Handle POST /admin/settings/reset-database - owner only
  */
 const handleResetDatabasePost = (request: Request): Promise<Response> =>
-  withOwnerAuthForm(request, async (session, form) => {
+  withOwnerAuthForm(request, async ({ session, form }) => {
     const settingsPageWithError = async (error: string, status: number) =>
       htmlResponse(await renderSettingsPage(session, error), status);
 
@@ -295,7 +295,7 @@ const handleResetDatabasePost = (request: Request): Promise<Response> =>
  * Handle POST /admin/settings/allowed-origins - owner only
  */
 const handleAllowedOriginsPost = (request: Request): Promise<Response> =>
-  withOwnerAuthForm(request, async (_session, form) => {
+  withOwnerAuthForm(request, async ({ form }) => {
     const raw = form.get("allowed_origins");
     const origins = raw ? raw.trim() : "";
     await setSetting(CONFIG_KEYS.ALLOWED_ORIGINS, origins);
@@ -306,7 +306,7 @@ const handleAllowedOriginsPost = (request: Request): Promise<Response> =>
  * Handle POST /admin/settings/currency - owner only
  */
 const handleCurrencyPost = (request: Request): Promise<Response> =>
-  withOwnerAuthForm(request, async (session, form) => {
+  withOwnerAuthForm(request, async ({ session, form }) => {
     const validation = parseCurrencyForm(form);
     if (!validation.valid) {
       return htmlResponse(await renderSettingsPage(session, validation.error), 400);

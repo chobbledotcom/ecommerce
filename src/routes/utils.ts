@@ -338,7 +338,10 @@ export const requireAuthForm = async (
   return { ok: true, session, form };
 };
 
-type FormHandler = (session: AuthSession, form: URLSearchParams) => Response | Promise<Response>;
+/** Auth context passed to form handlers */
+export type AuthFormData = { session: AuthSession; form: URLSearchParams };
+
+type FormHandler = (auth: AuthFormData) => Response | Promise<Response>;
 type SessionHandler = (session: AuthSession) => Response | Promise<Response>;
 
 /** Unwrap an AuthFormResult, optionally checking role */
@@ -352,7 +355,7 @@ const handleAuthForm = async (
   if (requiredRole && auth.session.adminLevel !== requiredRole) {
     return htmlResponse("Forbidden", 403);
   }
-  return handler(auth.session, auth.form);
+  return handler(auth);
 };
 
 /** Handle request with auth form - unwrap AuthFormResult */

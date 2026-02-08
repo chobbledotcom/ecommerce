@@ -16,8 +16,8 @@ const formatPrice = (unitPrice: number): string =>
   (unitPrice / 100).toFixed(2);
 
 /** Stock display text */
-const stockText = (stock: number, available: number): string =>
-  stock === -1 ? "Unlimited" : `${available} / ${stock}`;
+const stockText = ({ stock, available_stock }: ProductWithStock): string =>
+  stock === -1 ? "Unlimited" : `${available_stock} / ${stock}`;
 
 /**
  * Product list (dashboard) page
@@ -53,7 +53,7 @@ export const adminProductListPage = (
                   <td>{p.name}</td>
                   <td><code>{p.sku}</code></td>
                   <td>{formatPrice(p.unit_price)}</td>
-                  <td>{stockText(p.stock, p.available_stock)}</td>
+                  <td>{stockText(p)}</td>
                   <td>{p.active ? "Active" : "Inactive"}</td>
                   <td><a href={`/admin/product/${p.id}/edit`}>Edit</a></td>
                 </tr>
