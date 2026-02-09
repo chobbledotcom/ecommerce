@@ -110,6 +110,7 @@ describe("html", () => {
       squareTokenConfigured: true,
       squareWebhookConfigured: false,
       webhookUrl: "https://example.com/payment/webhook",
+      allowedOrigins: "",
       ...overrides,
     });
 
