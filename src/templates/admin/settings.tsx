@@ -14,20 +14,32 @@ import {
 import { Layout } from "#templates/layout.tsx";
 import { AdminNav } from "#templates/admin/nav.tsx";
 
+/** Settings page state from the database */
+export type SettingsPageState = {
+  stripeKeyConfigured: boolean;
+  paymentProvider: string | null;
+  squareTokenConfigured: boolean;
+  squareWebhookConfigured: boolean;
+  webhookUrl: string;
+};
+
 /**
  * Admin settings page
  */
 export const adminSettingsPage = (
   session: AdminSession,
-  stripeKeyConfigured: boolean,
-  paymentProvider: string | null,
+  state: SettingsPageState,
   error?: string,
   success?: string,
-  squareTokenConfigured?: boolean,
-  squareWebhookConfigured?: boolean,
-  webhookUrl?: string,
-): string =>
-  String(
+): string => {
+  const {
+    stripeKeyConfigured,
+    paymentProvider,
+    squareTokenConfigured,
+    squareWebhookConfigured,
+    webhookUrl,
+  } = state;
+  return String(
     <Layout title="Settings">
       <AdminNav session={session} />
 
@@ -155,7 +167,7 @@ document.getElementById('stripe-test-btn')?.addEventListener('click', async func
                 <li>Go to your <strong>Square Developer Dashboard</strong> and select your application</li>
                 <li>Navigate to <strong>Webhooks</strong> in the left sidebar</li>
                 <li>Click <strong>Add Subscription</strong></li>
-                <li>Set the <strong>Notification URL</strong> to:<br /><code>{webhookUrl ?? "(configure ALLOWED_DOMAIN first)"}</code></li>
+                <li>Set the <strong>Notification URL</strong> to:<br /><code>{webhookUrl || "(configure ALLOWED_DOMAIN first)"}</code></li>
                 <li>Subscribe to the <strong>payment.updated</strong> event</li>
                 <li>Save the subscription and copy the <strong>Signature Key</strong></li>
                 <li>Paste the signature key below</li>
@@ -223,3 +235,4 @@ document.getElementById('stripe-test-btn')?.addEventListener('click', async func
         </form>
     </Layout>
   );
+};

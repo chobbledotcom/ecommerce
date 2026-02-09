@@ -19,7 +19,7 @@ const TEST_WEBHOOK_SECRET = "whsec_test_secret_for_webhook_tests";
 /** Setup Stripe with webhook secret */
 const setupStripeWithWebhook = async (): Promise<void> => {
   await setupStripe();
-  await setStripeWebhookConfig(TEST_WEBHOOK_SECRET, "we_test_123");
+  await setStripeWebhookConfig({ secret: TEST_WEBHOOK_SECRET, endpointId: "we_test_123" });
 };
 
 /** Create a signed webhook request for a Stripe event */
@@ -298,7 +298,7 @@ describe("server (webhooks)", () => {
 
     beforeEach(async () => {
       await setupStripe();
-      await setStripeWebhookConfig(BUILD_LINE_ITEMS_SECRET, "we_test_bli");
+      await setStripeWebhookConfig({ secret: BUILD_LINE_ITEMS_SECRET, endpointId: "we_test_bli" });
     });
 
     test("handles completed session with no reservations (empty line items)", async () => {
