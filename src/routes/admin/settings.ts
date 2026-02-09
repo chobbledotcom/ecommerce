@@ -7,6 +7,7 @@ import {
   clearPaymentProvider,
   CONFIG_KEYS,
   getPaymentProviderFromDb,
+  getSetting,
   getStripeWebhookEndpointId,
   hasSquareToken,
   hasStripeKey,
@@ -61,12 +62,14 @@ const getSettingsPageState = async () => {
   const squareWebhookKey = await getSquareWebhookSignatureKey();
   const squareWebhookConfigured = squareWebhookKey !== null;
   const webhookUrl = getWebhookUrl();
+  const allowedOrigins = await getSetting(CONFIG_KEYS.ALLOWED_ORIGINS) ?? "";
   return {
     stripeKeyConfigured,
     paymentProvider,
     squareTokenConfigured,
     squareWebhookConfigured,
     webhookUrl,
+    allowedOrigins,
   };
 };
 

@@ -21,6 +21,7 @@ export type SettingsPageState = {
   squareTokenConfigured: boolean;
   squareWebhookConfigured: boolean;
   webhookUrl: string;
+  allowedOrigins: string;
 };
 
 /**
@@ -38,6 +39,7 @@ export const adminSettingsPage = (
     squareTokenConfigured,
     squareWebhookConfigured,
     webhookUrl,
+    allowedOrigins,
   } = state;
   return String(
     <Layout title="Settings">
@@ -190,7 +192,7 @@ document.getElementById('stripe-test-btn')?.addEventListener('click', async func
           <p>Comma-separated origins that may call the public API (e.g. https://myshop.com)</p>
           <input type="hidden" name="csrf_token" value={session.csrfToken} />
           <label for="allowed_origins">Allowed Origins</label>
-          <textarea name="allowed_origins" id="allowed_origins" rows="2" />
+          <textarea name="allowed_origins" id="allowed_origins" rows="2">{allowedOrigins}</textarea>
           <button type="submit">Save Allowed Origins</button>
         </form>
 
