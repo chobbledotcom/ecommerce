@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "#test-compat";
 import { handleRequest } from "#routes";
+import { getDb } from "#lib/db/client.ts";
 import {
   awaitTestRequest,
   createTestDbWithSetup,
@@ -383,6 +384,169 @@ describe("server (admin products)", () => {
         ),
       );
       expect(response.status).toBe(404);
+    });
+  });
+
+  describe("stock display (remaining + sold)", () => {
+    test("edit form shows remaining stock instead of total", async () => {
+      const { cookie } = await loginAsAdmin();
+      const product = await createTestProduct({ stock: 50, sku: "STOCK-1" });
+
+      // Simulate 10 sold (confirmed reservation)
+      await getDb().execute({
+        sql: `INSERT INTO stock_reservations (product_id, quantity, provider_session_id, status, created)
+              VALUES (?, 10, 'session-1', 'confirmed', datetime('now'))`,
+        args: [product.id],
+      });
+
+      const response = await awaitTestRequest(`/admin/product/${product.id}/edit`, { cookie });
+      expect(response.status).toBe(200);
+      const html = await response.text();
+      // Should show remaining (40), not total (50)
+      expect(html).toContain('value="40"');
+      // Should show sold count in label
+      expect(html).toContain("(10 sold)");
+    });
+
+    test("edit form shows -1 directly for unlimited stock", async () => {
+      const { cookie } = await loginAsAdmin();
+      const product = await createTestProduct({ stock: -1, sku: "UNLIM-1" });
+
+      const response = await awaitTestRequest(`/admin/product/${product.id}/edit`, { cookie });
+      expect(response.status).toBe(200);
+      const html = await response.text();
+      expect(html).toContain('value="-1"');
+      // sold count is 0 for unlimited
+      expect(html).toContain("(0 sold)");
+    });
+
+    test("update back-calculates stock from remaining + sold", async () => {
+      const { cookie, csrfToken } = await loginAsAdmin();
+      const product = await createTestProduct({ stock: 50, sku: "CALC-1" });
+
+      // Simulate 10 sold
+      await getDb().execute({
+        sql: `INSERT INTO stock_reservations (product_id, quantity, provider_session_id, status, created)
+              VALUES (?, 10, 'session-calc', 'confirmed', datetime('now'))`,
+        args: [product.id],
+      });
+
+      // User sets remaining to 30
+      const response = await handleRequest(
+        mockFormRequest(
+          `/admin/product/${product.id}`,
+          {
+            name: "Calc Product",
+            sku: "CALC-1",
+            description: "",
+            unit_price: "1000",
+            stock: "30",
+            active: "1",
+            csrf_token: csrfToken,
+          },
+          cookie,
+        ),
+      );
+      expect(response.status).toBe(302);
+
+      // Verify actual stock stored is remaining + sold = 30 + 10 = 40
+      const row = await getDb().execute({
+        sql: "SELECT stock FROM products WHERE id = ?",
+        args: [product.id],
+      });
+      expect((row.rows[0] as unknown as { stock: number }).stock).toBe(40);
+    });
+
+    test("update stores -1 directly for unlimited stock", async () => {
+      const { cookie, csrfToken } = await loginAsAdmin();
+      const product = await createTestProduct({ stock: 50, sku: "UNLIM-UPD" });
+
+      // Simulate 5 sold
+      await getDb().execute({
+        sql: `INSERT INTO stock_reservations (product_id, quantity, provider_session_id, status, created)
+              VALUES (?, 5, 'session-unlim', 'pending', datetime('now'))`,
+        args: [product.id],
+      });
+
+      // User sets stock to -1 (unlimited)
+      const response = await handleRequest(
+        mockFormRequest(
+          `/admin/product/${product.id}`,
+          {
+            name: "Unlim Product",
+            sku: "UNLIM-UPD",
+            description: "",
+            unit_price: "1000",
+            stock: "-1",
+            active: "1",
+            csrf_token: csrfToken,
+          },
+          cookie,
+        ),
+      );
+      expect(response.status).toBe(302);
+
+      // Verify stock stored is -1, not -1 + 5
+      const row = await getDb().execute({
+        sql: "SELECT stock FROM products WHERE id = ?",
+        args: [product.id],
+      });
+      expect((row.rows[0] as unknown as { stock: number }).stock).toBe(-1);
+    });
+
+    test("update an unlimited stock product keeps stock as -1", async () => {
+      const { cookie, csrfToken } = await loginAsAdmin();
+      const product = await createTestProduct({ stock: -1, sku: "UNLIM-EDIT" });
+
+      const response = await handleRequest(
+        mockFormRequest(
+          `/admin/product/${product.id}`,
+          {
+            name: "Updated Unlimited",
+            sku: "UNLIM-EDIT",
+            description: "",
+            unit_price: "2000",
+            stock: "-1",
+            active: "1",
+            csrf_token: csrfToken,
+          },
+          cookie,
+        ),
+      );
+      expect(response.status).toBe(302);
+
+      const row = await getDb().execute({
+        sql: "SELECT stock FROM products WHERE id = ?",
+        args: [product.id],
+      });
+      expect((row.rows[0] as unknown as { stock: number }).stock).toBe(-1);
+    });
+
+    test("update with validation error passes sold count back to form", async () => {
+      const { cookie, csrfToken } = await loginAsAdmin();
+      const product = await createTestProduct({ stock: 20, sku: "VALERR-1" });
+
+      await getDb().execute({
+        sql: `INSERT INTO stock_reservations (product_id, quantity, provider_session_id, status, created)
+              VALUES (?, 3, 'session-val', 'pending', datetime('now'))`,
+        args: [product.id],
+      });
+
+      const response = await handleRequest(
+        mockFormRequest(
+          `/admin/product/${product.id}`,
+          {
+            name: "",
+            sku: "",
+            unit_price: "",
+            csrf_token: csrfToken,
+          },
+          cookie,
+        ),
+      );
+      expect(response.status).toBe(400);
+      const html = await response.text();
+      expect(html).toContain("(3 sold)");
     });
   });
 

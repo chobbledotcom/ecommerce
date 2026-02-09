@@ -83,6 +83,17 @@ export const getAvailableStock = async (
   return Math.max(0, product.stock - reserved!.total);
 };
 
+/** Get total sold/reserved quantity for a product (pending + confirmed reservations) */
+export const getSoldCount = async (productId: number): Promise<number> => {
+  const result = await queryOne<{ total: number }>(
+    `SELECT COALESCE(SUM(quantity), 0) as total
+     FROM stock_reservations
+     WHERE product_id = ? AND status IN ('pending', 'confirmed')`,
+    [productId],
+  );
+  return result!.total;
+};
+
 /** Product with computed available stock */
 export type ProductWithStock = Product & { available_stock: number };
 

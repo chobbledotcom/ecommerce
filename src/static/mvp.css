@@ -767,3 +767,11 @@ body.iframe form {
 form > button {
   margin: 0;
 }
+
+form > label {
+  margin-bottom: 1rem;
+}
+
+form > label > small {
+  font-weight: normal;
+}

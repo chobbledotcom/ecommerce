@@ -3,7 +3,7 @@
  * All admin users (owner + manager) can manage products
  */
 
-import { getProductsWithAvailableStock, productsTable } from "#lib/db/products.ts";
+import { getProductsWithAvailableStock, getSoldCount, productsTable } from "#lib/db/products.ts";
 import { getDb } from "#lib/db/client.ts";
 import { expireStaleReservations } from "#lib/db/reservations.ts";
 import type { Product } from "#lib/types.ts";
@@ -91,14 +91,17 @@ const handleEditProductGet = (request: Request, path: string): Promise<Response>
     const product = await getProductById(productId);
     if (!product) return htmlResponse("Not found", 404);
 
+    const sold = product.stock === -1 ? 0 : await getSoldCount(productId);
+    const remaining = product.stock === -1 ? -1 : product.stock - sold;
+
     return htmlResponse(adminProductFormPage(session, {
       name: product.name,
       sku: product.sku,
       description: product.description,
       unit_price: product.unit_price,
-      stock: product.stock,
+      stock: remaining,
       active: String(product.active),
-    }, undefined, productId));
+    }, undefined, productId, sold));
   });
 
 /**
@@ -112,13 +115,19 @@ const handleUpdateProduct = (request: Request, path: string): Promise<Response> 
     const product = await getProductById(productId);
     if (!product) return htmlResponse("Not found", 404);
 
+    const sold = product.stock === -1 ? 0 : await getSoldCount(productId);
+
     const validation = parseProductForm(form);
     if (!validation.valid) {
       return htmlResponse(
-        adminProductFormPage(session, {}, validation.error, productId),
+        adminProductFormPage(session, {}, validation.error, productId, sold),
         400,
       );
     }
+
+    const actualStock = validation.stock === -1
+      ? -1
+      : validation.stock + sold;
 
     await getDb().execute({
       sql: `UPDATE products SET name = ?, sku = ?, description = ?, unit_price = ?, stock = ?, active = ? WHERE id = ?`,
@@ -127,7 +136,7 @@ const handleUpdateProduct = (request: Request, path: string): Promise<Response> 
         validation.sku,
         validation.description,
         validation.unitPrice,
-        validation.stock,
+        actualStock,
         validation.active,
         productId,
       ] as (string | number)[],
