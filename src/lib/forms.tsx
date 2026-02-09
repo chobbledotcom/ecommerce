@@ -25,6 +25,7 @@ export type FieldType =
 export interface Field {
   name: string;
   label: string;
+  labelHtml?: string;
   type: FieldType;
   required?: boolean;
   placeholder?: string;
@@ -68,7 +69,7 @@ const renderSelectOptions = (
 export const renderField = (field: Field, value: string = ""): string =>
   String(
     <label>
-      {field.label}
+      {field.labelHtml ? <Raw html={field.labelHtml} /> : field.label}
       {field.type === "textarea" ? (
         <textarea
           name={field.name}

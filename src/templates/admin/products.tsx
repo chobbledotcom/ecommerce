@@ -9,7 +9,8 @@ import type { ProductWithStock } from "#lib/db/products.ts";
 import { Layout } from "#templates/layout.tsx";
 import { AdminNav, Breadcrumb } from "#templates/admin/nav.tsx";
 import { productFields } from "#templates/fields.ts";
-import type { FieldValues } from "#lib/forms.tsx";
+import type { Field, FieldValues } from "#lib/forms.tsx";
+import { map } from "#fp";
 
 /** Format price from smallest unit to decimal */
 const formatPrice = (unitPrice: number): string =>
@@ -67,15 +68,27 @@ export const adminProductListPage = (
 /**
  * Product create/edit form page
  */
+/** Build product fields with a dynamic stock label showing sold count */
+const stockLabelFields = (soldCount?: number): Field[] =>
+  soldCount !== undefined
+    ? map((f: Field): Field =>
+      f.name === "stock"
+        ? { ...f, labelHtml: `Stock <small>(${soldCount} sold)</small>` }
+        : f
+    )(productFields)
+    : productFields;
+
 export const adminProductFormPage = (
   session: AdminSession,
   values: FieldValues = {},
   error?: string,
   productId?: number,
+  soldCount?: number,
 ): string => {
   const isEdit = productId !== undefined;
   const title = isEdit ? "Edit Product" : "New Product";
   const action = isEdit ? `/admin/product/${productId}` : "/admin/product/new";
+  const fields = stockLabelFields(soldCount);
 
   return String(
     <Layout title={title}>
@@ -85,7 +98,7 @@ export const adminProductFormPage = (
       {error && <div class="error">{error}</div>}
       <form method="POST" action={action}>
         <input type="hidden" name="csrf_token" value={session.csrfToken} />
-        <Raw html={renderFields(productFields, values)} />
+        <Raw html={renderFields(fields, values)} />
         <button type="submit">{isEdit ? "Update Product" : "Create Product"}</button>
       </form>
       {isEdit && (
