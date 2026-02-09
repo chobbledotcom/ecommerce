@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "#test-compat";
 import { handleRequest } from "#routes";
-import { CONFIG_KEYS, getSetting } from "#lib/db/settings.ts";
+import { CONFIG_KEYS, getSetting, setSetting } from "#lib/db/settings.ts";
 import {
   createTestDbWithSetup,
   loginAsAdmin,
@@ -194,6 +194,15 @@ describe("server (settings - allowed origins and currency)", () => {
       const response = await awaitTestRequest("/admin/settings", { cookie });
       const html = await response.text();
       expect(html).toContain("allowed_origins");
+    });
+
+    test("shows current allowed origins value in textarea", async () => {
+      await setSetting(CONFIG_KEYS.ALLOWED_ORIGINS, "https://shop.example.com,https://store.example.com");
+      const { cookie } = await loginAsAdmin();
+
+      const response = await awaitTestRequest("/admin/settings", { cookie });
+      const html = await response.text();
+      expect(html).toContain("https://shop.example.com,https://store.example.com");
     });
 
     test("shows currency field", async () => {
