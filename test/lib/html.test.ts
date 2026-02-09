@@ -4,7 +4,7 @@ import { adminLoginPage } from "#templates/admin/login.tsx";
 import { adminGlobalActivityLogPage } from "#templates/admin/activityLog.tsx";
 import { Breadcrumb } from "#templates/admin/nav.tsx";
 import { adminSessionsPage } from "#templates/admin/sessions.tsx";
-import { adminSettingsPage } from "#templates/admin/settings.tsx";
+import { adminSettingsPage, type SettingsPageState } from "#templates/admin/settings.tsx";
 
 const TEST_CSRF_TOKEN = "test-csrf-token-abc123";
 const TEST_SESSION = { csrfToken: TEST_CSRF_TOKEN, adminLevel: "owner" as const };
@@ -104,16 +104,19 @@ describe("html", () => {
   });
 
   describe("adminSettingsPage", () => {
+    const squareState = (overrides: Partial<SettingsPageState> = {}): SettingsPageState => ({
+      stripeKeyConfigured: false,
+      paymentProvider: "square",
+      squareTokenConfigured: true,
+      squareWebhookConfigured: false,
+      webhookUrl: "https://example.com/payment/webhook",
+      ...overrides,
+    });
+
     test("shows square webhook configured message when key is set", () => {
       const html = adminSettingsPage(
         TEST_SESSION,
-        false, // stripeKeyConfigured
-        "square", // paymentProvider
-        undefined, // error
-        undefined, // success
-        true, // squareTokenConfigured
-        true, // squareWebhookConfigured
-        "https://example.com/payment/webhook",
+        squareState({ squareWebhookConfigured: true }),
       );
       expect(html).toContain("A webhook signature key is currently configured");
       expect(html).toContain("Enter a new key below to replace it");
@@ -122,13 +125,7 @@ describe("html", () => {
     test("shows fallback text when webhookUrl is not provided", () => {
       const html = adminSettingsPage(
         TEST_SESSION,
-        false, // stripeKeyConfigured
-        "square", // paymentProvider
-        undefined, // error
-        undefined, // success
-        true, // squareTokenConfigured
-        false, // squareWebhookConfigured
-        undefined, // webhookUrl is undefined
+        squareState({ webhookUrl: "" }),
       );
       expect(html).toContain("(configure ALLOWED_DOMAIN first)");
     });
@@ -136,13 +133,7 @@ describe("html", () => {
     test("shows square webhook not configured message when key is not set", () => {
       const html = adminSettingsPage(
         TEST_SESSION,
-        false,
-        "square",
-        undefined,
-        undefined,
-        true,
-        false, // squareWebhookConfigured = false
-        "https://example.com/payment/webhook",
+        squareState(),
       );
       expect(html).toContain("No webhook signature key is configured");
       expect(html).toContain("Follow the steps above to set one up");

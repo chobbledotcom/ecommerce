@@ -75,19 +75,7 @@ const renderSettingsPage = async (
   session: AdminSession,
   error?: string,
   success?: string,
-) => {
-  const state = await getSettingsPageState();
-  return adminSettingsPage(
-    session,
-    state.stripeKeyConfigured,
-    state.paymentProvider,
-    error,
-    success,
-    state.squareTokenConfigured,
-    state.squareWebhookConfigured,
-    state.webhookUrl,
-  );
-};
+) => adminSettingsPage(session, await getSettingsPageState(), error, success);
 
 /**
  * Handle GET /admin/settings - owner only

@@ -2,7 +2,8 @@
  * Admin order listing template
  */
 
-import type { AdminSession, PaymentSession } from "#lib/types.ts";
+import type { PaymentSessionListResult } from "#lib/payments.ts";
+import type { AdminSession } from "#lib/types.ts";
 import { Layout } from "#templates/layout.tsx";
 import { AdminNav } from "#templates/admin/nav.tsx";
 
@@ -17,12 +18,12 @@ const formatAmount = (amount: number | null, currency: string | null): string =>
  * Admin orders list page
  */
 export const adminOrdersPage = (
-  sessions: PaymentSession[],
-  hasMore: boolean,
+  result: PaymentSessionListResult,
   session: AdminSession,
   lastId?: string,
-): string =>
-  String(
+): string => {
+  const { sessions, hasMore } = result;
+  return String(
     <Layout title="Orders">
       <AdminNav session={session} />
       <h1>Orders</h1>
@@ -57,3 +58,4 @@ export const adminOrdersPage = (
       )}
     </Layout>
   );
+};

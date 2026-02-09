@@ -20,7 +20,7 @@ const handleOrdersList = (request: Request): Promise<Response> =>
   requireSessionOr(request, async (session) => {
     const provider = await getActivePaymentProvider();
     if (!provider) {
-      return htmlResponse(adminOrdersPage([], false, session));
+      return htmlResponse(adminOrdersPage({ sessions: [], hasMore: false }, session));
     }
 
     const after = getSearchParam(request, "after") ?? undefined;
@@ -29,10 +29,9 @@ const handleOrdersList = (request: Request): Promise<Response> =>
       startingAfter: after,
     });
 
-    const lastSession = result.sessions.at(-1);
-    const lastId = lastSession?.id;
+    const lastId = result.sessions.at(-1)?.id;
 
-    return htmlResponse(adminOrdersPage(result.sessions, result.hasMore, session, lastId));
+    return htmlResponse(adminOrdersPage(result, session, lastId));
   });
 
 /**
