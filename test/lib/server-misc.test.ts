@@ -54,6 +54,19 @@ describe("server (misc)", () => {
         expect(csp).toContain("default-src 'self'");
         expect(csp).toContain("form-action 'self'");
       });
+
+      test("script-src includes Square SDK domains", async () => {
+        const response = await handleRequest(mockRequest("/"));
+        const csp = response.headers.get("content-security-policy")!;
+        expect(csp).toContain("https://*.squarecdn.com");
+        expect(csp).toContain("https://js.squareup.com");
+      });
+
+      test("connect-src includes Square PCI domain", async () => {
+        const response = await handleRequest(mockRequest("/"));
+        const csp = response.headers.get("content-security-policy")!;
+        expect(csp).toContain("connect-src 'self' https://pci-connect.squareup.com");
+      });
     });
 
     describe("other security headers", () => {
