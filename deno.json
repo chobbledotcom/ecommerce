@@ -1,5 +1,5 @@
 {
-  "name": "tickets",
+  "name": "chobble-ecommerce",
   "version": "1.0.0",
   "exports": "./src/index.ts",
   "tasks": {

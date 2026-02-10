@@ -1,14 +1,18 @@
-# Tickets
+# Chobble Ecommerce
 
-A minimal ticket reservation system built with Deno and libsql, deployable to Bunny Edge Scripting.
+A minimal ecommerce system with stock reservation, built with Deno and libsql, deployable to Bunny Edge Scripting.
+
+## Hosted option
+
+Paid hosting is available at [chobble.com](https://chobble.com) for £50 per year. Upgrades are not included.
 
 ## Features
 
-- **Event management** — capacity limits, registration deadlines, configurable fields (email, phone, or both)
-- **Free and paid tickets** — Stripe and Square support with a pluggable provider architecture
-- **Multi-event booking** — register for multiple events in a single checkout
-- **Encryption at rest** — all PII encrypted with AES-256-GCM and hybrid RSA-OAEP
-- **Admin dashboard** — attendee management, CSV export, check-in tracking, activity log, session management
+- **Product catalog** — create and manage products with SKUs, pricing, and stock levels (including unlimited stock)
+- **Stock reservation** — two-phase checkout that reserves stock atomically, then confirms on payment
+- **Stripe and Square** — payment provider support with webhook handling and refunds
+- **Encryption at rest** — PII encrypted with AES-256-GCM, passwords hashed with PBKDF2, session tokens hashed before storage
+- **Admin dashboard** — product management, order tracking, refunds, activity log, session management, multi-user with owner/manager roles
 - **Edge deployment** — builds to a single file for Bunny CDN edge scripting
 - **Web-based setup** — admin password, currency, and payment providers configured via browser
 
@@ -48,6 +52,12 @@ All configuration is stored encrypted in the database.
 | `ALLOWED_DOMAIN` | Yes | Domain for security validation |
 | `PORT` | No | Server port for local development (default: `3000`) |
 
+## API
+
+- `GET /api/products` — list active products with available stock (JSON)
+- `POST /api/checkout` — create a payment session and reserve stock (JSON)
+- `POST /payment/webhook` — receive payment provider events
+
 ## Deployment
 
 ### GitHub Secrets
@@ -83,4 +93,4 @@ deno task precommit      # All checks (typecheck, lint, cpd, test:coverage)
 
 ## License
 
-MIT
+AGPLv3

@@ -1,6 +1,6 @@
-# tickets
+# Chobble Ecommerce
 
-A minimal ticket reservation system using Bunny Edge Scripting and libsql.
+A minimal ecommerce system with stock reservation, using Bunny Edge Scripting and libsql.
 
 ## Getting Started
 
