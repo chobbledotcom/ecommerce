@@ -25,7 +25,8 @@ const buildCspHeader = (embeddable: boolean): string =>
     // Restrict resource loading to self (prevents loading from unexpected domains)
     "default-src 'self'",
     "style-src 'self' 'unsafe-inline'", // Allow inline styles
-    "script-src 'self' 'unsafe-inline'", // Allow inline scripts
+    "script-src 'self' 'unsafe-inline' https://*.squarecdn.com https://js.squareup.com", // Allow inline scripts + Square SDK
+    "connect-src 'self' https://pci-connect.squareup.com", // Allow self + Square PCI connections
     "form-action 'self' https://checkout.stripe.com", // Restrict form submissions to self + Stripe checkout redirect
   ]).join("; ");
 
