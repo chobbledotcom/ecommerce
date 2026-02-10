@@ -1,4 +1,4 @@
-# Tickets
+# Chobble Ecommerce
 
 A minimal ecommerce system with stock reservation, built with Deno and libsql, deployable to Bunny Edge Scripting.
 

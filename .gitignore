@@ -1,5 +1,5 @@
 node_modules/
-tickets.db
+chobble-ecommerce.db
 *.db
 .env
 dist/
