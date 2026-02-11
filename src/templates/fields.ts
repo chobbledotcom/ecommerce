@@ -231,6 +231,25 @@ export const allowedOriginsFields: Field[] = [
 ];
 
 /**
+ * Outbound webhook settings form field definitions
+ */
+export const outboundWebhookFields: Field[] = [
+  {
+    name: "webhook_url",
+    label: "Webhook URL",
+    type: "text",
+    placeholder: "https://example.com/orders",
+    hint: "URL to receive order.completed notifications (leave blank to disable)",
+  },
+  {
+    name: "webhook_secret",
+    label: "Webhook Signing Secret",
+    type: "password",
+    hint: "HMAC-SHA256 secret for signing outbound webhooks. Share this with the receiver so they can verify authenticity.",
+  },
+];
+
+/**
  * Currency form field definitions
  */
 export const currencyFields: Field[] = [

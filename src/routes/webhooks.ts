@@ -15,6 +15,7 @@
 
 import { map } from "#fp";
 import { getCurrencyCode } from "#lib/config.ts";
+import { decrypt } from "#lib/crypto.ts";
 import { getDb } from "#lib/db/client.ts";
 import { reserveSession } from "#lib/db/processed-payments.ts";
 import { confirmReservation, expireReservation, getReservationsBySession, restockFromRefund } from "#lib/db/reservations.ts";
@@ -128,7 +129,8 @@ const handlePaymentWebhook = async (request: Request): Promise<Response> => {
     const lineItems = await buildLineItems(reservations);
     const currency = await getCurrencyCode();
     const webhookUrl = await getSetting("webhook_url");
-    const webhookSecret = await getSetting("webhook_secret");
+    const encryptedSecret = await getSetting("webhook_secret");
+    const webhookSecret = encryptedSecret ? await decrypt(encryptedSecret) : null;
     await logAndNotifyOrder(sessionId, lineItems, currency, webhookUrl, webhookSecret);
 
     return webhookAckResponse({ processed: true, confirmed });

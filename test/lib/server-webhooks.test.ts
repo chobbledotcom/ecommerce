@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "#test-compat";
 import { handleRequest } from "#routes";
+import { encrypt } from "#lib/crypto.ts";
 import { getDb } from "#lib/db/client.ts";
 import { constructTestWebhookEvent, stripeApi } from "#lib/stripe.ts";
-import { setStripeWebhookConfig } from "#lib/db/settings.ts";
+import { CONFIG_KEYS, setStripeWebhookConfig, setSetting } from "#lib/db/settings.ts";
 import {
   createTestDbWithSetup,
   createTestProduct,
@@ -117,6 +118,42 @@ describe("server (webhooks)", () => {
         args: [sessionId],
       });
       expect(result.rows[0]?.status).toBe("confirmed");
+    });
+
+    test("decrypts webhook secret when sending order notification", async () => {
+      await setupStripeWithWebhook();
+      const product = await createTestProduct({ stock: 10 });
+      const sessionId = "cs_test_with_secret";
+      await reserveStock(product.id, 1, sessionId);
+
+      // Store an encrypted webhook secret and URL
+      const encrypted = await encrypt("outbound_test_secret");
+      await setSetting(CONFIG_KEYS.WEBHOOK_SECRET, encrypted);
+      await setSetting(CONFIG_KEYS.WEBHOOK_URL, "https://example.com/fulfillment");
+
+      // Capture the outbound webhook fetch
+      const originalFetch = globalThis.fetch;
+      let capturedHeaders: Record<string, string> = {};
+      globalThis.fetch = ((_url: string | URL | Request, init?: RequestInit) => {
+        capturedHeaders = (init?.headers ?? {}) as Record<string, string>;
+        return Promise.resolve(new Response("ok"));
+      }) as typeof globalThis.fetch;
+
+      try {
+        const request = await signedWebhookRequest({
+          id: "evt_secret",
+          type: "checkout.session.completed",
+          data: { object: { id: sessionId } },
+        });
+        const response = await handleRequest(request);
+        expect(response.status).toBe(200);
+
+        // The outbound webhook should have an HMAC signature header
+        expect(capturedHeaders["X-Webhook-Signature"]).toBeDefined();
+        expect(capturedHeaders["X-Webhook-Signature"]).toMatch(/^t=\d+,v1=[a-f0-9]{64}$/);
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
     });
 
     test("handles duplicate checkout completed idempotently", async () => {

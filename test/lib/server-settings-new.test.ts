@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "#test-compat";
 import { handleRequest } from "#routes";
+import { decrypt } from "#lib/crypto.ts";
 import { CONFIG_KEYS, getSetting, setSetting } from "#lib/db/settings.ts";
 import {
   createTestDbWithSetup,
@@ -211,6 +212,145 @@ describe("server (settings - allowed origins and currency)", () => {
       const response = await awaitTestRequest("/admin/settings", { cookie });
       const html = await response.text();
       expect(html).toContain("currency");
+    });
+
+    test("shows outbound webhook fields", async () => {
+      const { cookie } = await loginAsAdmin();
+
+      const response = await awaitTestRequest("/admin/settings", { cookie });
+      const html = await response.text();
+      expect(html).toContain("Order Webhook");
+      expect(html).toContain("webhook_url");
+      expect(html).toContain("webhook_secret");
+    });
+
+    test("shows configured webhook URL on settings page", async () => {
+      await setSetting(CONFIG_KEYS.WEBHOOK_URL, "https://fulfillment.example.com/hook");
+      const { cookie } = await loginAsAdmin();
+
+      const response = await awaitTestRequest("/admin/settings", { cookie });
+      const html = await response.text();
+      expect(html).toContain("https://fulfillment.example.com/hook");
+    });
+  });
+
+  describe("POST /admin/settings/outbound-webhook", () => {
+    test("redirects to login when not authenticated", async () => {
+      const response = await handleRequest(
+        mockFormRequest("/admin/settings/outbound-webhook", {
+          webhook_url: "https://example.com/hook",
+        }),
+      );
+      expectAdminRedirect(response);
+    });
+
+    test("saves webhook URL", async () => {
+      const { cookie, csrfToken } = await loginAsAdmin();
+
+      const response = await handleRequest(
+        mockFormRequest(
+          "/admin/settings/outbound-webhook",
+          {
+            webhook_url: "https://fulfillment.example.com/orders",
+            webhook_secret: "",
+            csrf_token: csrfToken,
+          },
+          cookie,
+        ),
+      );
+      expect(response.status).toBe(302);
+      const location = response.headers.get("location")!;
+      expect(decodeURIComponent(location)).toContain("Outbound webhook settings updated");
+
+      const saved = await getSetting(CONFIG_KEYS.WEBHOOK_URL);
+      expect(saved).toBe("https://fulfillment.example.com/orders");
+    });
+
+    test("saves webhook secret encrypted", async () => {
+      const { cookie, csrfToken } = await loginAsAdmin();
+
+      const response = await handleRequest(
+        mockFormRequest(
+          "/admin/settings/outbound-webhook",
+          {
+            webhook_url: "https://example.com/hook",
+            webhook_secret: "my_super_secret",
+            csrf_token: csrfToken,
+          },
+          cookie,
+        ),
+      );
+      expect(response.status).toBe(302);
+
+      // Verify secret is stored encrypted (not plaintext)
+      const raw = await getSetting(CONFIG_KEYS.WEBHOOK_SECRET);
+      expect(raw).not.toBeNull();
+      expect(raw).not.toBe("my_super_secret");
+
+      // Verify it decrypts back correctly
+      const decrypted = await decrypt(raw!);
+      expect(decrypted).toBe("my_super_secret");
+    });
+
+    test("clears webhook URL when left blank", async () => {
+      // Set a URL first
+      await setSetting(CONFIG_KEYS.WEBHOOK_URL, "https://old.example.com/hook");
+
+      const { cookie, csrfToken } = await loginAsAdmin();
+
+      const response = await handleRequest(
+        mockFormRequest(
+          "/admin/settings/outbound-webhook",
+          {
+            webhook_url: "",
+            webhook_secret: "",
+            csrf_token: csrfToken,
+          },
+          cookie,
+        ),
+      );
+      expect(response.status).toBe(302);
+
+      const saved = await getSetting(CONFIG_KEYS.WEBHOOK_URL);
+      expect(saved).toBeNull();
+    });
+
+    test("rejects invalid CSRF token", async () => {
+      const { cookie } = await loginAsAdmin();
+
+      const response = await handleRequest(
+        mockFormRequest(
+          "/admin/settings/outbound-webhook",
+          {
+            webhook_url: "https://example.com/hook",
+            webhook_secret: "secret",
+            csrf_token: "invalid",
+          },
+          cookie,
+        ),
+      );
+      expect(response.status).toBe(403);
+    });
+
+    test("shows configured secret message on settings page", async () => {
+      // First, set the webhook secret via the form
+      const { cookie, csrfToken } = await loginAsAdmin();
+      await handleRequest(
+        mockFormRequest(
+          "/admin/settings/outbound-webhook",
+          {
+            webhook_url: "https://example.com/hook",
+            webhook_secret: "test_secret_val",
+            csrf_token: csrfToken,
+          },
+          cookie,
+        ),
+      );
+
+      // Now render the settings page — should show "signing secret is configured"
+      const response = await awaitTestRequest("/admin/settings", { cookie });
+      const html = await response.text();
+      expect(html).toContain("A signing secret is configured");
     });
   });
 });

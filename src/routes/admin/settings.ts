@@ -24,6 +24,8 @@ import {
   getSquareWebhookSignatureKey,
   getAllowedDomain,
 } from "#lib/config.ts";
+import { encrypt } from "#lib/crypto.ts";
+import { getDb } from "#lib/db/client.ts";
 import { resetDatabase } from "#lib/db/migrations/index.ts";
 import { getUserById, verifyUserPassword } from "#lib/db/users.ts";
 import { setupWebhookEndpoint, testStripeConnection } from "#lib/stripe.ts";
@@ -63,6 +65,9 @@ const getSettingsPageState = async () => {
   const squareWebhookConfigured = squareWebhookKey !== null;
   const webhookUrl = getWebhookUrl();
   const allowedOrigins = await getSetting(CONFIG_KEYS.ALLOWED_ORIGINS) ?? "";
+  const outboundWebhookUrl = await getSetting(CONFIG_KEYS.WEBHOOK_URL) ?? "";
+  const outboundWebhookSecretConfigured =
+    (await getSetting(CONFIG_KEYS.WEBHOOK_SECRET)) !== null;
   return {
     stripeKeyConfigured,
     paymentProvider,
@@ -70,6 +75,8 @@ const getSettingsPageState = async () => {
     squareWebhookConfigured,
     webhookUrl,
     allowedOrigins,
+    outboundWebhookUrl,
+    outboundWebhookSecretConfigured,
   };
 };
 
@@ -306,6 +313,34 @@ const handleCurrencyPost = (request: Request): Promise<Response> =>
     return redirectWithSuccess("/admin/settings", `Currency set to ${validation.currencyCode}`);
   });
 
+/**
+ * Handle POST /admin/settings/outbound-webhook - owner only
+ */
+const handleOutboundWebhookPost = (request: Request): Promise<Response> =>
+  withOwnerAuthForm(request, async ({ form }) => {
+    const rawUrl = form.get("webhook_url");
+    const rawSecret = form.get("webhook_secret");
+    const url = rawUrl ? String(rawUrl).trim() : "";
+    const secret = rawSecret ? String(rawSecret).trim() : "";
+
+    if (url) {
+      await setSetting(CONFIG_KEYS.WEBHOOK_URL, url);
+    } else {
+      // Clear the URL if left blank (disables outbound webhooks)
+      await getDb().execute({
+        sql: "DELETE FROM settings WHERE key = ?",
+        args: [CONFIG_KEYS.WEBHOOK_URL],
+      });
+    }
+
+    if (secret) {
+      const encrypted = await encrypt(secret);
+      await setSetting(CONFIG_KEYS.WEBHOOK_SECRET, encrypted);
+    }
+
+    return redirectWithSuccess("/admin/settings", "Outbound webhook settings updated");
+  });
+
 /** Settings routes */
 export const settingsRoutes = defineRoutes({
   "GET /admin/settings": (request) => handleAdminSettingsGet(request),
@@ -320,6 +355,8 @@ export const settingsRoutes = defineRoutes({
   "POST /admin/settings/allowed-origins": (request) =>
     handleAllowedOriginsPost(request),
   "POST /admin/settings/currency": (request) => handleCurrencyPost(request),
+  "POST /admin/settings/outbound-webhook": (request) =>
+    handleOutboundWebhookPost(request),
   "POST /admin/settings/reset-database": (request) =>
     handleResetDatabasePost(request),
 });

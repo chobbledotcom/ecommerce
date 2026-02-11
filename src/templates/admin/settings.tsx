@@ -7,6 +7,7 @@ import { Raw } from "#lib/jsx/jsx-runtime.ts";
 import type { AdminSession } from "#lib/types.ts";
 import {
   changePasswordFields,
+  outboundWebhookFields,
   squareAccessTokenFields,
   squareWebhookFields,
   stripeKeyFields,
@@ -22,6 +23,8 @@ export type SettingsPageState = {
   squareWebhookConfigured: boolean;
   webhookUrl: string;
   allowedOrigins: string;
+  outboundWebhookUrl: string;
+  outboundWebhookSecretConfigured: boolean;
 };
 
 /**
@@ -40,6 +43,8 @@ export const adminSettingsPage = (
     squareWebhookConfigured,
     webhookUrl,
     allowedOrigins,
+    outboundWebhookUrl,
+    outboundWebhookSecretConfigured,
   } = state;
   return String(
     <Layout title="Settings">
@@ -194,6 +199,23 @@ document.getElementById('stripe-test-btn')?.addEventListener('click', async func
           <label for="allowed_origins">Allowed Origins</label>
           <textarea name="allowed_origins" id="allowed_origins" rows="2">{allowedOrigins}</textarea>
           <button type="submit">Save Allowed Origins</button>
+        </form>
+
+        <form method="POST" action="/admin/settings/outbound-webhook">
+            <h2>Order Webhook</h2>
+          <p>
+            {outboundWebhookUrl
+              ? `Currently sending order notifications to: ${outboundWebhookUrl}`
+              : "No outbound webhook URL is configured. Orders will not trigger external notifications."}
+          </p>
+          <p>
+            {outboundWebhookSecretConfigured
+              ? "A signing secret is configured. Enter a new secret below to replace it, or leave blank to keep the current one."
+              : "No signing secret is configured. Without a secret, webhook receivers cannot verify that notifications are authentic."}
+          </p>
+          <input type="hidden" name="csrf_token" value={session.csrfToken} />
+          <Raw html={renderFields(outboundWebhookFields)} />
+          <button type="submit">Save Webhook Settings</button>
         </form>
 
         <form method="POST" action="/admin/settings/currency">
