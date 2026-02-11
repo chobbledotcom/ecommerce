@@ -7,12 +7,15 @@
 
 import { map } from "#fp";
 import { getCurrencyCode } from "#lib/config.ts";
+import { isCheckoutRateLimited, recordCheckoutAttempt } from "#lib/db/checkout-attempts.ts";
 import { getProductsBySkus, getProductsWithAvailableStock } from "#lib/db/products.ts";
 import { expireReservation, type ReservationItem, reserveStockBatch, updateReservationSessionId } from "#lib/db/reservations.ts";
 import { ErrorCode, logError } from "#lib/logger.ts";
 import { getActivePaymentProvider } from "#lib/payments.ts";
 import type { Product } from "#lib/types.ts";
 import { createRouter, defineRoutes } from "#routes/router.ts";
+import type { ServerContext } from "#routes/types.ts";
+import { getClientIp } from "#routes/utils.ts";
 
 /** Get provider or return a 503 error response */
 const requireProvider = async () => {
@@ -90,7 +93,14 @@ const parseCheckoutRequest = (body: unknown): CheckoutRequest | string => {
 /**
  * POST /api/checkout — validate cart, reserve stock, create provider session
  */
-const handlePostCheckout = async (request: Request): Promise<Response> => {
+const handlePostCheckout = async (request: Request, server?: ServerContext): Promise<Response> => {
+  // Rate limit by client IP to prevent stock reservation abuse
+  const clientIp = getClientIp(request, server);
+  if (await isCheckoutRateLimited(clientIp)) {
+    return jsonResponse({ error: "Too many checkout attempts. Please try again later." }, 429);
+  }
+  await recordCheckoutAttempt(clientIp);
+
   const provider = await requireProvider();
   if (!provider) return jsonResponse({ error: "Payments not configured" }, 503);
 
@@ -171,7 +181,7 @@ const handlePostCheckout = async (request: Request): Promise<Response> => {
 /** Public API route definitions */
 const apiRoutes = defineRoutes({
   "GET /api/products": () => handleGetProducts(),
-  "POST /api/checkout": (request) => handlePostCheckout(request),
+  "POST /api/checkout": (request, _params, server) => handlePostCheckout(request, server),
 });
 
 /** Route public API requests */

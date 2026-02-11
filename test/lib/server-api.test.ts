@@ -347,6 +347,56 @@ describe("server (public API)", () => {
     });
   });
 
+  describe("checkout rate limiting", () => {
+    test("returns 429 after too many checkout attempts", async () => {
+      const makeRequest = () =>
+        apiPostRequest("/api/checkout", {
+          items: [{ sku: "SKU-1", quantity: 1 }],
+          success_url: "https://shop.example.com/success",
+          cancel_url: "https://shop.example.com/cancel",
+        });
+
+      // Make repeated checkout attempts until rate limited
+      // (without Stripe configured, these return 503 but still count)
+      let response: Response;
+      do {
+        response = await handleRequest(makeRequest());
+      } while (response.status !== 429);
+
+      expect(response.status).toBe(429);
+      const data = await response.json();
+      expect(data.error).toContain("Too many checkout attempts");
+    });
+
+    test("records checkout attempts even for valid checkouts", async () => {
+      await setupStripe();
+      await createTestProduct({ sku: "RATE-1", name: "Rate Test", unitPrice: 1000, stock: 100 });
+
+      await withMocks(
+        () => spyOn(stripeApi, "createCheckoutSession").mockResolvedValue({
+          sessionId: "cs_rate_test",
+          checkoutUrl: "https://checkout.stripe.com/rate",
+        }),
+        async () => {
+          const makeRequest = () =>
+            apiPostRequest("/api/checkout", {
+              items: [{ sku: "RATE-1", quantity: 1 }],
+              success_url: "https://shop.example.com/success",
+              cancel_url: "https://shop.example.com/cancel",
+            });
+
+          // Make successful checkouts until rate limited
+          let response: Response;
+          do {
+            response = await handleRequest(makeRequest());
+          } while (response.status !== 429);
+
+          expect(response.status).toBe(429);
+        },
+      );
+    });
+  });
+
   describe("CORS and content type", () => {
     test("API POST with form-urlencoded is rejected", async () => {
       const response = await handleRequest(

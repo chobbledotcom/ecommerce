@@ -9,7 +9,7 @@ import { getSetting } from "#lib/db/settings.ts";
 /**
  * The latest database update identifier - update this when changing schema
  */
-export const LATEST_UPDATE = "remove ticket-era tables";
+export const LATEST_UPDATE = "add checkout rate limiting";
 
 /**
  * Run a migration that may fail if already applied (e.g., adding a column that exists)
@@ -193,6 +193,15 @@ export const initDb = async (): Promise<void> => {
     `CREATE INDEX IF NOT EXISTS idx_reservations_status ON stock_reservations(status, created)`,
   );
 
+  // Create checkout_attempts table (rate limiting for /api/checkout)
+  await runMigration(`
+    CREATE TABLE IF NOT EXISTS checkout_attempts (
+      ip TEXT PRIMARY KEY,
+      attempts INTEGER NOT NULL DEFAULT 0,
+      locked_until INTEGER
+    )
+  `);
+
   // Drop legacy ticket-era tables
   await runMigration(`DROP TABLE IF EXISTS attendees`);
   await runMigration(`DROP TABLE IF EXISTS events`);
@@ -215,6 +224,7 @@ const ALL_TABLES = [
   "sessions",
   "users",
   "login_attempts",
+  "checkout_attempts",
   "settings",
 ] as const;
 
