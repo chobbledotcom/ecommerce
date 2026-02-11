@@ -1,6 +1,10 @@
 import { afterEach, beforeEach, describe, expect, jest, test } from "#test-compat";
 import { getDb, setDb } from "#lib/db/client.ts";
 import {
+  isCheckoutRateLimited,
+  recordCheckoutAttempt,
+} from "#lib/db/checkout-attempts.ts";
+import {
   clearLoginAttempts,
   isLoginRateLimited,
   recordFailedLogin,
@@ -512,6 +516,113 @@ describe("db", () => {
       // Verify the record was cleared - can fail new attempts again
       const lockedAgain = await recordFailedLogin(ip);
       expect(lockedAgain).toBe(false);
+    });
+  });
+
+  describe("checkout rate limiting", () => {
+    test("isCheckoutRateLimited returns false for new IP", async () => {
+      const limited = await isCheckoutRateLimited("10.0.0.1");
+      expect(limited).toBe(false);
+    });
+
+    test("recordCheckoutAttempt locks after enough attempts", async () => {
+      const ip = "10.0.0.2";
+      let locked = false;
+      let attempts = 0;
+      while (!locked) {
+        locked = await recordCheckoutAttempt(ip);
+        attempts++;
+      }
+      expect(locked).toBe(true);
+      expect(attempts).toBeGreaterThan(1);
+    });
+
+    test("isCheckoutRateLimited returns true when locked", async () => {
+      const ip = "10.0.0.3";
+      let locked = false;
+      while (!locked) {
+        locked = await recordCheckoutAttempt(ip);
+      }
+
+      const limited = await isCheckoutRateLimited(ip);
+      expect(limited).toBe(true);
+    });
+
+    test("isCheckoutRateLimited clears expired lockout", async () => {
+      const ip = "10.0.0.4";
+
+      // Lock the IP by recording attempts until locked
+      let locked = false;
+      while (!locked) {
+        locked = await recordCheckoutAttempt(ip);
+      }
+      expect(await isCheckoutRateLimited(ip)).toBe(true);
+
+      // Simulate expired lockout by manipulating the DB directly
+      await getDb().execute({
+        sql: "UPDATE checkout_attempts SET locked_until = ? WHERE locked_until IS NOT NULL",
+        args: [Date.now() - 1000],
+      });
+
+      // Should detect expired lockout, clear it, and return false
+      const limited = await isCheckoutRateLimited(ip);
+      expect(limited).toBe(false);
+
+      // Verify the record was cleared - can record new attempts again
+      const lockedAgain = await recordCheckoutAttempt(ip);
+      expect(lockedAgain).toBe(false);
+    });
+
+    test("isCheckoutRateLimited returns false for attempts below max without lockout", async () => {
+      // Record a few attempts without reaching the limit
+      await recordCheckoutAttempt("10.0.0.5");
+      await recordCheckoutAttempt("10.0.0.5");
+
+      const limited = await isCheckoutRateLimited("10.0.0.5");
+      expect(limited).toBe(false);
+    });
+
+    test("recordCheckoutAttempt purges expired lockouts from other IPs", async () => {
+      // Insert an expired lockout for a different IP directly into the DB
+      await getDb().execute({
+        sql: "INSERT INTO checkout_attempts (ip, attempts, locked_until) VALUES (?, ?, ?)",
+        args: ["stale-hash-1", 10, Date.now() - 1000],
+      });
+      await getDb().execute({
+        sql: "INSERT INTO checkout_attempts (ip, attempts, locked_until) VALUES (?, ?, ?)",
+        args: ["stale-hash-2", 10, Date.now() - 2000],
+      });
+
+      // Verify stale rows exist
+      const before = await getDb().execute("SELECT COUNT(*) as count FROM checkout_attempts");
+      expect((before.rows[0] as unknown as { count: number }).count).toBe(2);
+
+      // Recording an attempt should purge the expired lockouts
+      await recordCheckoutAttempt("10.0.0.6");
+
+      // Only the new IP's row should remain
+      const after = await getDb().execute("SELECT COUNT(*) as count FROM checkout_attempts");
+      expect((after.rows[0] as unknown as { count: number }).count).toBe(1);
+    });
+  });
+
+  describe("login rate limiting purges expired records", () => {
+    test("recordFailedLogin purges expired lockouts from other IPs", async () => {
+      // Insert an expired lockout directly into the DB
+      await getDb().execute({
+        sql: "INSERT INTO login_attempts (ip, attempts, locked_until) VALUES (?, ?, ?)",
+        args: ["stale-login-hash", 5, Date.now() - 1000],
+      });
+
+      const before = await getDb().execute("SELECT COUNT(*) as count FROM login_attempts");
+      expect((before.rows[0] as unknown as { count: number }).count).toBe(1);
+
+      // Recording an attempt should purge the expired lockout
+      await recordFailedLogin("192.168.50.1");
+
+      // Only the new IP's row should remain
+      const after = await getDb().execute("SELECT COUNT(*) as count FROM login_attempts");
+      expect((after.rows[0] as unknown as { count: number }).count).toBe(1);
     });
   });
 
