@@ -71,9 +71,9 @@ const buildLineItems = async (
 /** Extract the provider session ID from the webhook event */
 const getSessionId = (event: { data: { object: Record<string, unknown> } }): string | null => {
   const obj = event.data.object;
-  // Stripe: checkout.session.completed → object.id is the session ID
-  // Square: payment.updated → object.order_id is the order ID
-  return (obj.id as string) ?? (obj.order_id as string) ?? null;
+  // Square: payment.updated → object.order_id is the order ID (reservations stored under order ID)
+  // Stripe: checkout.session.completed → object.id is the session ID (no order_id field)
+  return (obj.order_id as string) ?? (obj.id as string) ?? null;
 };
 
 /**

@@ -2,7 +2,8 @@ import { afterEach, beforeEach, describe, expect, spyOn, test } from "#test-comp
 import { handleRequest } from "#routes";
 import { getDb } from "#lib/db/client.ts";
 import { constructTestWebhookEvent, stripeApi } from "#lib/stripe.ts";
-import { setStripeWebhookConfig } from "#lib/db/settings.ts";
+import { constructTestWebhookEvent as constructSquareWebhookEvent } from "#lib/square.ts";
+import { setStripeWebhookConfig, setPaymentProvider, updateSquareAccessToken, updateSquareWebhookSignatureKey } from "#lib/db/settings.ts";
 import {
   createTestDbWithSetup,
   createTestProduct,
@@ -359,6 +360,105 @@ describe("server (webhooks)", () => {
       expect(response.status).toBe(200);
       const data = await response.json();
       expect(data.processed).toBe(true);
+    });
+  });
+
+  describe("Square webhook session ID extraction", () => {
+    const SQUARE_WEBHOOK_SECRET = "square_test_webhook_secret";
+
+    /** Set up Square as the active payment provider with webhook signing */
+    const setupSquareWithWebhook = async (): Promise<void> => {
+      await setPaymentProvider("square");
+      await updateSquareAccessToken("EAAAl_test_webhook");
+      await updateSquareWebhookSignatureKey(SQUARE_WEBHOOK_SECRET);
+    };
+
+    /** Create a signed Square webhook request */
+    const signedSquareWebhookRequest = async (
+      event: { id: string; type: string; data: { object: Record<string, unknown> } },
+    ): Promise<Request> => {
+      const notificationUrl = "https://localhost/payment/webhook";
+      const { payload, signature } = await constructSquareWebhookEvent(
+        event as Parameters<typeof constructSquareWebhookEvent>[0],
+        SQUARE_WEBHOOK_SECRET,
+        notificationUrl,
+      );
+      return new Request("http://localhost/payment/webhook", {
+        method: "POST",
+        headers: {
+          host: "localhost",
+          "content-type": "application/json",
+          "x-square-hmacsha256-signature": signature,
+        },
+        body: payload,
+      });
+    };
+
+    test("confirms reservations using order_id, not payment id", async () => {
+      await setupSquareWithWebhook();
+      const product = await createTestProduct({ stock: 10 });
+      const orderId = "order_square_test_123";
+      await reserveStock(product.id, 2, orderId);
+
+      const request = await signedSquareWebhookRequest({
+        id: "evt_sq_1",
+        type: "payment.updated",
+        data: {
+          object: {
+            id: "pay_square_wrong_id",
+            status: "COMPLETED",
+            order_id: orderId,
+          },
+        },
+      });
+
+      const response = await handleRequest(request);
+      expect(response.status).toBe(200);
+      const data = await response.json();
+      expect(data.processed).toBe(true);
+      expect(data.confirmed).toBe(1);
+
+      // Verify reservation was confirmed using the order_id
+      const result = await getDb().execute({
+        sql: "SELECT status FROM stock_reservations WHERE provider_session_id = ?",
+        args: [orderId],
+      });
+      expect(result.rows[0]?.status).toBe("confirmed");
+    });
+
+    test("does not confirm when using payment id instead of order_id", async () => {
+      await setupSquareWithWebhook();
+      const product = await createTestProduct({ stock: 10 });
+      const orderId = "order_square_mismatch";
+      const paymentId = "pay_square_mismatch";
+      await reserveStock(product.id, 1, orderId);
+
+      // The webhook has both id (payment) and order_id (order)
+      // getSessionId should extract order_id, not id
+      const request = await signedSquareWebhookRequest({
+        id: "evt_sq_2",
+        type: "payment.updated",
+        data: {
+          object: {
+            id: paymentId,
+            status: "COMPLETED",
+            order_id: orderId,
+          },
+        },
+      });
+
+      const response = await handleRequest(request);
+      expect(response.status).toBe(200);
+      const data = await response.json();
+      // Should confirm 1 reservation (matched by order_id)
+      expect(data.confirmed).toBe(1);
+
+      // Verify no reservation exists under the payment ID
+      const paymentResult = await getDb().execute({
+        sql: "SELECT COUNT(*) as count FROM stock_reservations WHERE provider_session_id = ?",
+        args: [paymentId],
+      });
+      expect(Number(paymentResult.rows[0]?.count)).toBe(0);
     });
   });
 });
