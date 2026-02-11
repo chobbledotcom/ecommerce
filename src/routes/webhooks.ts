@@ -68,12 +68,16 @@ const buildLineItems = async (
   })(reservations);
 };
 
-/** Extract the provider session ID from the webhook event */
+/** Extract the provider session ID from the webhook event.
+ *
+ * For Stripe checkout.session.completed the session ID lives at object.id.
+ * For Square payment.updated the *order* ID (which we use as provider_session_id)
+ * lives at object.order_id — object.id is the *payment* ID which is different.
+ * Prefer order_id when present so the correct ID is used to look up reservations.
+ */
 const getSessionId = (event: { data: { object: Record<string, unknown> } }): string | null => {
   const obj = event.data.object;
-  // Stripe: checkout.session.completed → object.id is the session ID
-  // Square: payment.updated → object.order_id is the order ID
-  return (obj.id as string) ?? (obj.order_id as string) ?? null;
+  return (obj.order_id as string) ?? (obj.id as string) ?? null;
 };
 
 /**
@@ -124,7 +128,8 @@ const handlePaymentWebhook = async (request: Request): Promise<Response> => {
     const lineItems = await buildLineItems(reservations);
     const currency = await getCurrencyCode();
     const webhookUrl = await getSetting("webhook_url");
-    await logAndNotifyOrder(sessionId, lineItems, currency, webhookUrl);
+    const webhookSecret = await getSetting("webhook_secret");
+    await logAndNotifyOrder(sessionId, lineItems, currency, webhookUrl, webhookSecret);
 
     return webhookAckResponse({ processed: true, confirmed });
   }

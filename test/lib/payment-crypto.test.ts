@@ -4,6 +4,7 @@ import {
   hmacToBase64,
   hmacToHex,
   secureCompare,
+  signTimestampedPayload,
 } from "#lib/payment-crypto.ts";
 
 describe("payment-crypto", () => {
@@ -120,6 +121,27 @@ describe("payment-crypto", () => {
         bytes[i] = decoded.charCodeAt(i);
       }
       expect(Array.from(bytes)).toEqual(Array.from(original));
+    });
+  });
+
+  describe("signTimestampedPayload", () => {
+    test("produces signature in t=<ts>,v1=<hex> format", async () => {
+      const { signature, timestamp } = await signTimestampedPayload("body", "secret");
+      expect(signature).toMatch(/^t=\d+,v1=[a-f0-9]{64}$/);
+      expect(timestamp).toBeGreaterThan(0);
+    });
+
+    test("signature is verifiable by recomputing HMAC", async () => {
+      const secret = "verify_me";
+      const body = '{"data":"test"}';
+      const { signature } = await signTimestampedPayload(body, secret);
+
+      const [tPart, v1Part] = signature.split(",");
+      const ts = tPart!.split("=")[1]!;
+      const hex = v1Part!.split("=")[1]!;
+
+      const expected = hmacToHex(await computeHmacSha256(`${ts}.${body}`, secret));
+      expect(hex).toBe(expected);
     });
   });
 

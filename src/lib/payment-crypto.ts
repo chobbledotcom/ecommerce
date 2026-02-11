@@ -42,3 +42,19 @@ export const hmacToHex = (buf: ArrayBuffer): string =>
 /** Convert ArrayBuffer to base64 string */
 export const hmacToBase64 = (buf: ArrayBuffer): string =>
   btoa(String.fromCharCode(...new Uint8Array(buf)));
+
+/**
+ * Sign a payload with a timestamp and HMAC-SHA256, returning the
+ * Stripe-style signature header value: t=<unix_seconds>,v1=<hex_hmac>
+ *
+ * The signed data is "<timestamp>.<payload>" to bind the timestamp to the body.
+ * Used by both Stripe webhook verification and outbound webhook signing.
+ */
+export const signTimestampedPayload = async (
+  payload: string,
+  secret: string,
+): Promise<{ signature: string; timestamp: number }> => {
+  const timestamp = Math.floor(Date.now() / 1000);
+  const hmac = hmacToHex(await computeHmacSha256(`${timestamp}.${payload}`, secret));
+  return { signature: `t=${timestamp},v1=${hmac}`, timestamp };
+};

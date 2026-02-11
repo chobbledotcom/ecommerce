@@ -38,6 +38,9 @@ export const CONFIG_KEYS = {
   SQUARE_ACCESS_TOKEN: "square_access_token",
   SQUARE_WEBHOOK_SIGNATURE_KEY: "square_webhook_signature_key",
   SQUARE_LOCATION_ID: "square_location_id",
+  // Outbound webhook configuration
+  WEBHOOK_URL: "webhook_url",
+  WEBHOOK_SECRET: "webhook_secret",
   // CORS / storefront configuration
   ALLOWED_ORIGINS: "allowed_origins",
 } as const;

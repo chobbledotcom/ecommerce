@@ -12,7 +12,7 @@ import {
 import { getStripeWebhookEndpointId } from "#lib/db/settings.ts";
 import { getEnv } from "#lib/env.ts";
 import { ErrorCode, logDebug, logError } from "#lib/logger.ts";
-import { computeHmacSha256, hmacToHex, secureCompare } from "#lib/payment-crypto.ts";
+import { computeHmacSha256, hmacToHex, secureCompare, signTimestampedPayload } from "#lib/payment-crypto.ts";
 import {
   createWithClient,
 } from "#lib/payment-helpers.ts";
@@ -516,12 +516,6 @@ export const constructTestWebhookEvent = async (
   secret: string,
 ): Promise<{ payload: string; signature: string }> => {
   const payload = JSON.stringify(event);
-  const timestamp = Math.floor(Date.now() / 1000);
-  const signedPayload = `${timestamp}.${payload}`;
-  const sig = await computeSignature(signedPayload, secret);
-
-  return {
-    payload,
-    signature: `t=${timestamp},v1=${sig}`,
-  };
+  const { signature } = await signTimestampedPayload(payload, secret);
+  return { payload, signature };
 };

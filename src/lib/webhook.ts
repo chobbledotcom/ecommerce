@@ -1,10 +1,14 @@
 /**
  * Webhook notification module
  * Sends order data to a configured webhook URL on checkout completion
+ *
+ * Security: Outbound webhooks are signed with HMAC-SHA256 using a
+ * configured secret so receivers can verify authenticity.
  */
 
 import { logActivity } from "#lib/db/activityLog.ts";
 import { ErrorCode, logError } from "#lib/logger.ts";
+import { signTimestampedPayload as signWebhookPayload } from "#lib/payment-crypto.ts";
 
 /** Line item in the webhook payload */
 export type WebhookLineItem = {
@@ -23,19 +27,33 @@ export type WebhookPayload = {
   timestamp: string;
 };
 
+export { signWebhookPayload };
+
 /**
  * Send a webhook payload to a URL
  * Fires and forgets - errors are logged but don't block order processing
+ *
+ * When a webhookSecret is provided the request includes an
+ * X-Webhook-Signature header so receivers can verify authenticity.
  */
 export const sendWebhook = async (
   webhookUrl: string,
   payload: WebhookPayload,
+  webhookSecret: string | null = null,
 ): Promise<void> => {
   try {
+    const body = JSON.stringify(payload);
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+
+    if (webhookSecret) {
+      const { signature } = await signWebhookPayload(body, webhookSecret);
+      headers["X-Webhook-Signature"] = signature;
+    }
+
     await fetch(webhookUrl, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
+      headers,
+      body,
     });
   } catch {
     logError({ code: ErrorCode.WEBHOOK_SEND });
@@ -50,6 +68,7 @@ export const logAndNotifyOrder = async (
   lineItems: WebhookLineItem[],
   currency: string,
   webhookUrl: string | null,
+  webhookSecret: string | null = null,
 ): Promise<void> => {
   await logActivity(`Order completed: ${providerSessionId}`);
 
@@ -62,5 +81,5 @@ export const logAndNotifyOrder = async (
     line_items: lineItems,
     timestamp: new Date().toISOString(),
   };
-  await sendWebhook(webhookUrl, payload);
+  await sendWebhook(webhookUrl, payload, webhookSecret);
 };
