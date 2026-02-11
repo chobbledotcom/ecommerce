@@ -581,6 +581,49 @@ describe("db", () => {
       const limited = await isCheckoutRateLimited("10.0.0.5");
       expect(limited).toBe(false);
     });
+
+    test("recordCheckoutAttempt purges expired lockouts from other IPs", async () => {
+      // Insert an expired lockout for a different IP directly into the DB
+      await getDb().execute({
+        sql: "INSERT INTO checkout_attempts (ip, attempts, locked_until) VALUES (?, ?, ?)",
+        args: ["stale-hash-1", 10, Date.now() - 1000],
+      });
+      await getDb().execute({
+        sql: "INSERT INTO checkout_attempts (ip, attempts, locked_until) VALUES (?, ?, ?)",
+        args: ["stale-hash-2", 10, Date.now() - 2000],
+      });
+
+      // Verify stale rows exist
+      const before = await getDb().execute("SELECT COUNT(*) as count FROM checkout_attempts");
+      expect((before.rows[0] as unknown as { count: number }).count).toBe(2);
+
+      // Recording an attempt should purge the expired lockouts
+      await recordCheckoutAttempt("10.0.0.6");
+
+      // Only the new IP's row should remain
+      const after = await getDb().execute("SELECT COUNT(*) as count FROM checkout_attempts");
+      expect((after.rows[0] as unknown as { count: number }).count).toBe(1);
+    });
+  });
+
+  describe("login rate limiting purges expired records", () => {
+    test("recordFailedLogin purges expired lockouts from other IPs", async () => {
+      // Insert an expired lockout directly into the DB
+      await getDb().execute({
+        sql: "INSERT INTO login_attempts (ip, attempts, locked_until) VALUES (?, ?, ?)",
+        args: ["stale-login-hash", 5, Date.now() - 1000],
+      });
+
+      const before = await getDb().execute("SELECT COUNT(*) as count FROM login_attempts");
+      expect((before.rows[0] as unknown as { count: number }).count).toBe(1);
+
+      // Recording an attempt should purge the expired lockout
+      await recordFailedLogin("192.168.50.1");
+
+      // Only the new IP's row should remain
+      const after = await getDb().execute("SELECT COUNT(*) as count FROM login_attempts");
+      expect((after.rows[0] as unknown as { count: number }).count).toBe(1);
+    });
   });
 
   describe("settings - additional coverage", () => {

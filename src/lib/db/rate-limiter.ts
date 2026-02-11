@@ -24,6 +24,15 @@ type RateLimiterConfig = {
 export const createRateLimiter = (config: RateLimiterConfig) => {
   const { table, maxAttempts, lockoutDurationMs } = config;
 
+  /** Delete all rows whose lockout has expired — prevents unbounded table growth */
+  const purgeExpired = async (): Promise<number> => {
+    const result = await getDb().execute({
+      sql: `DELETE FROM ${table} WHERE locked_until IS NOT NULL AND locked_until <= ?`,
+      args: [Date.now()],
+    });
+    return result.rowsAffected;
+  };
+
   /** Hash IP and query attempts, then apply handler function */
   const withHashedIpAttempts = async <T>(
     ip: string,
@@ -54,8 +63,11 @@ export const createRateLimiter = (config: RateLimiterConfig) => {
     });
 
   /** Record an attempt. Returns true if the IP is now locked out. */
-  const recordAttempt = (ip: string): Promise<boolean> =>
-    withHashedIpAttempts(ip, async (hashedIp, row) => {
+  const recordAttempt = async (ip: string): Promise<boolean> => {
+    // Purge expired lockouts first so the subsequent read sees clean data
+    await purgeExpired();
+
+    return withHashedIpAttempts(ip, async (hashedIp, row) => {
       const newAttempts = (row?.attempts ?? 0) + 1;
 
       if (newAttempts >= maxAttempts) {
@@ -73,6 +85,7 @@ export const createRateLimiter = (config: RateLimiterConfig) => {
       });
       return false;
     });
+  };
 
   /** Clear attempts for an IP */
   const clearAttempts = async (ip: string): Promise<void> => {
@@ -80,5 +93,5 @@ export const createRateLimiter = (config: RateLimiterConfig) => {
     await executeByField(table, "ip", hashedIp);
   };
 
-  return { isRateLimited, recordAttempt, clearAttempts };
+  return { isRateLimited, recordAttempt, clearAttempts, purgeExpired };
 };
