@@ -181,6 +181,16 @@ describe("config", () => {
       Deno.env.set("ALLOWED_DOMAIN", "localhost");
       expect(getAllowedDomain()).toBe("localhost");
     });
+
+    test("throws error when ALLOWED_DOMAIN is not set", () => {
+      const original = Deno.env.get("ALLOWED_DOMAIN");
+      Deno.env.delete("ALLOWED_DOMAIN");
+      try {
+        expect(() => getAllowedDomain()).toThrow("ALLOWED_DOMAIN environment variable is required");
+      } finally {
+        if (original) Deno.env.set("ALLOWED_DOMAIN", original);
+      }
+    });
   });
 
   describe("isPaymentsEnabled - non-stripe provider", () => {

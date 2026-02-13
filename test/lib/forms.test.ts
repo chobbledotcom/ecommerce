@@ -1,6 +1,8 @@
 import { describe, expect, test } from "#test-compat";
 import {
   type Field,
+  fieldNum,
+  fieldStr,
   renderError,
   renderField,
   renderFields,
@@ -561,6 +563,33 @@ describe("forms", () => {
       const form = new URLSearchParams({ currency_code: "usd" });
       const result = parseCurrencyForm(form);
       expect(result.valid).toBe(true);
+    });
+  });
+
+  describe("field helpers", () => {
+    test("fieldNum converts string to number", () => {
+      const values = { price: "100" };
+      expect(fieldNum(values, "price")).toBe(100);
+    });
+
+    test("fieldNum handles number values", () => {
+      const values = { price: 42 };
+      expect(fieldNum(values, "price")).toBe(42);
+    });
+
+    test("fieldNum returns 0 for missing field", () => {
+      const values = {};
+      expect(fieldNum(values, "missing")).toBe(0);
+    });
+
+    test("fieldStr converts number to string", () => {
+      const values = { name: 123 };
+      expect(fieldStr(values, "name")).toBe("123");
+    });
+
+    test("fieldStr returns empty string for null", () => {
+      const values = { name: null };
+      expect(fieldStr(values, "name")).toBe("");
     });
   });
 

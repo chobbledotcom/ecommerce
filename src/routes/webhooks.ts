@@ -15,7 +15,7 @@
 
 import { map } from "#fp";
 import { getCurrencyCode } from "#lib/config.ts";
-import { getDb } from "#lib/db/client.ts";
+import { queryRows } from "#lib/db/client.ts";
 import { reserveSession } from "#lib/db/processed-payments.ts";
 import { confirmReservation, expireReservation, getReservationsBySession, restockFromRefund } from "#lib/db/reservations.ts";
 import { getSetting } from "#lib/db/settings.ts";
@@ -50,11 +50,10 @@ const buildLineItems = async (
   if (productIds.length === 0) return [];
 
   const placeholders = productIds.map(() => "?").join(",");
-  const result = await getDb().execute({
-    sql: `SELECT * FROM products WHERE id IN (${placeholders})`,
-    args: productIds,
-  });
-  const products = result.rows as unknown as Product[];
+  const products = await queryRows<Product>(
+    `SELECT * FROM products WHERE id IN (${placeholders})`,
+    productIds,
+  );
   const productMap = new Map(map((p: Product) => [p.id, p] as const)(products));
 
   return map((r: Reservation) => {
@@ -73,7 +72,8 @@ const getSessionId = (event: { data: { object: Record<string, unknown> } }): str
   const obj = event.data.object;
   // Square: payment.updated → object.order_id is the order ID (reservations stored under order ID)
   // Stripe: checkout.session.completed → object.id is the session ID (no order_id field)
-  return (obj.order_id as string) ?? (obj.id as string) ?? null;
+  const id = obj.order_id ?? obj.id;
+  return typeof id === "string" ? id : null;
 };
 
 /**

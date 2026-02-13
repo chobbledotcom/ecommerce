@@ -7,7 +7,7 @@
  * confirmed → expired (on refund, restocks)
  */
 
-import { getDb } from "#lib/db/client.ts";
+import { getDb, queryRows } from "#lib/db/client.ts";
 import { col, defineTable } from "#lib/db/table.ts";
 import type { Reservation, ReservationStatus } from "#lib/types.ts";
 
@@ -181,7 +181,7 @@ export const reserveStockBatch = async (
       item.productId,
       item.productId,
       item.quantity,
-    ] as (string | number)[],
+    ],
   });
 
   // Atomic batch: expire stale reservations then insert all new ones
@@ -189,7 +189,7 @@ export const reserveStockBatch = async (
     [
       {
         sql: `UPDATE stock_reservations SET status = ? WHERE status = ? AND created < ?`,
-        args: ["expired" as string | number, "pending", cutoff],
+        args: ["expired", "pending", cutoff],
       },
       ...items.map(reserveInsert),
     ],
@@ -239,12 +239,10 @@ export const updateReservationSessionId = async (
 /**
  * Get all reservations for a provider session ID.
  */
-export const getReservationsBySession = async (
+export const getReservationsBySession = (
   providerSessionId: string,
-): Promise<Reservation[]> => {
-  const result = await getDb().execute({
-    sql: `SELECT * FROM stock_reservations WHERE provider_session_id = ?`,
-    args: [providerSessionId],
-  });
-  return result.rows as unknown as Reservation[];
-};
+): Promise<Reservation[]> =>
+  queryRows<Reservation>(
+    `SELECT * FROM stock_reservations WHERE provider_session_id = ?`,
+    [providerSessionId],
+  );
