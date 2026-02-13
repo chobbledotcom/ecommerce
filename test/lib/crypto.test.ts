@@ -280,6 +280,25 @@ describe("password hashing", () => {
       );
       expect(result).toBe(false);
     });
+
+    it("returns false when password differs by single character", async () => {
+      const hash = await hashPassword("password123");
+      const result = await verifyPassword("password124", hash);
+      expect(result).toBe(false);
+    });
+
+    it("exercises constant-time comparison with multiple differing passwords", async () => {
+      const hash1 = await hashPassword("alpha");
+      const hash2 = await hashPassword("beta");
+      const hash3 = await hashPassword("gamma");
+      // Verify each against the others to ensure XOR operations execute
+      expect(await verifyPassword("beta", hash1)).toBe(false);
+      expect(await verifyPassword("gamma", hash1)).toBe(false);
+      expect(await verifyPassword("alpha", hash2)).toBe(false);
+      expect(await verifyPassword("gamma", hash2)).toBe(false);
+      expect(await verifyPassword("alpha", hash3)).toBe(false);
+      expect(await verifyPassword("beta", hash3)).toBe(false);
+    });
   });
 });
 

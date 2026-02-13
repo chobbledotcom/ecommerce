@@ -251,4 +251,22 @@ describe("products", () => {
       expect(products).toHaveLength(0);
     });
   });
+
+  describe("getSoldCount", () => {
+    test("returns 0 when no reservations exist", async () => {
+      const product = await createTestProduct({ stock: 10 });
+      const { getSoldCount } = await import("#lib/db/products.ts");
+      const sold = await getSoldCount(product.id);
+      expect(sold).toBe(0);
+    });
+
+    test("returns total of pending and confirmed reservations", async () => {
+      const product = await createTestProduct({ stock: 20 });
+      const { getSoldCount } = await import("#lib/db/products.ts");
+      await reserveStock(product.id, 3, "session-1");
+      await reserveStock(product.id, 5, "session-2");
+      const sold = await getSoldCount(product.id);
+      expect(sold).toBe(8);
+    });
+  });
 });
