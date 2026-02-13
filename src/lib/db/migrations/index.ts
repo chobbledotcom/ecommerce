@@ -130,8 +130,9 @@ export const initDb = async (): Promise<void> => {
   {
     const existingPasswordHash = await getSetting("admin_password");
     const existingWrappedDataKey = await getSetting("wrapped_data_key");
+    // COUNT(*) always returns a row
     const countRow = await queryOne<{ count: number }>("SELECT COUNT(*) as count FROM users", []);
-    const hasNoUsers = (countRow?.count ?? 0) === 0;
+    const hasNoUsers = countRow!.count === 0;
 
     if (existingPasswordHash && hasNoUsers) {
       const username = "admin";

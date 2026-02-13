@@ -257,7 +257,7 @@ const PASSWORD_PREFIX = "pbkdf2";
 const constantTimeEqualBytes = (a: Uint8Array, b: Uint8Array): boolean => {
   let result = 0;
   for (let i = 0; i < a.length; i++) {
-    result |= (a[i] ?? 0) ^ (b[i] ?? 0);
+    result |= a[i]! ^ b[i]!;
   }
   return result === 0;
 };

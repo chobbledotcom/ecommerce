@@ -71,7 +71,7 @@ export const getAvailableStock = async (
     [productId],
   );
 
-  return Math.max(0, product.stock - (reserved?.total ?? 0));
+  return Math.max(0, product.stock - reserved!.total);
 };
 
 /** Get total sold/reserved quantity for a product (pending + confirmed reservations) */
@@ -83,7 +83,7 @@ export const getSoldCount = async (productId: number): Promise<number> => {
      WHERE product_id = ? AND status IN ('pending', 'confirmed')`,
     [productId],
   );
-  return result?.total ?? 0;
+  return result!.total;
 };
 
 /** Product with computed available stock */
