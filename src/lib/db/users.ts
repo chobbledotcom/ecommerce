@@ -12,7 +12,7 @@ import {
   verifyPassword,
   wrapKey,
 } from "#lib/crypto.ts";
-import { getDb, queryOne } from "#lib/db/client.ts";
+import { getDb, queryOne, queryRows } from "#lib/db/client.ts";
 import type { AdminLevel, User } from "#lib/types.ts";
 
 /** Shared user creation logic */
@@ -113,12 +113,10 @@ export const isUsernameTaken = async (username: string): Promise<boolean> => {
 /**
  * Get all users (for admin user management page)
  */
-export const getAllUsers = async (): Promise<User[]> => {
-  const result = await getDb().execute(
+export const getAllUsers = (): Promise<User[]> =>
+  queryRows<User>(
     "SELECT id, username_hash, username_index, password_hash, wrapped_data_key, admin_level, invite_code_hash, invite_expiry FROM users ORDER BY id ASC",
   );
-  return result.rows as unknown as User[];
-};
 
 /**
  * Verify a user's password (decrypt stored hash, then verify)

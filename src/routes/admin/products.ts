@@ -4,7 +4,7 @@
  */
 
 import { getProductsWithAvailableStock, getSoldCount, productsTable } from "#lib/db/products.ts";
-import { getDb } from "#lib/db/client.ts";
+import { getDb, queryOne } from "#lib/db/client.ts";
 import { expireStaleReservations } from "#lib/db/reservations.ts";
 import type { Product } from "#lib/types.ts";
 import { defineRoutes } from "#routes/router.ts";
@@ -22,16 +22,11 @@ import { parseProductForm } from "#templates/fields.ts";
 /** Parse product ID from path like /admin/product/123/edit.
  *  Only called from routes already matched by /admin/product/\d+. */
 const parseProductId = (path: string): number =>
-  Number(path.match(/^\/admin\/product\/(\d+)/)![1]);
+  Number(path.match(/^\/admin\/product\/(\d+)/)?.[1]);
 
 /** Get a product by ID or return null */
-const getProductById = async (id: number): Promise<Product | null> => {
-  const result = await getDb().execute({
-    sql: "SELECT * FROM products WHERE id = ?",
-    args: [id],
-  });
-  return result.rows.length > 0 ? (result.rows[0] as unknown as Product) : null;
-};
+const getProductById = (id: number): Promise<Product | null> =>
+  queryOne<Product>("SELECT * FROM products WHERE id = ?", [id]);
 
 /** 30 minutes — matches the stale threshold used in checkout */
 const STALE_RESERVATION_MS = 30 * 60 * 1000;
@@ -139,7 +134,7 @@ const handleUpdateProduct = (request: Request, path: string): Promise<Response> 
         actualStock,
         validation.active,
         productId,
-      ] as (string | number)[],
+      ],
     });
 
     return redirect("/admin/");

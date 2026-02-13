@@ -14,7 +14,7 @@ import {
   unwrapKey,
   wrapKey,
 } from "#lib/crypto.ts";
-import { getDb } from "#lib/db/client.ts";
+import { getDb, queryOne } from "#lib/db/client.ts";
 import { deleteAllSessions } from "#lib/db/sessions.ts";
 import { createUser } from "#lib/db/users.ts";
 import type { Settings } from "#lib/types.ts";
@@ -46,12 +46,8 @@ export const CONFIG_KEYS = {
  * Get a setting value
  */
 export const getSetting = async (key: string): Promise<string | null> => {
-  const result = await getDb().execute({
-    sql: "SELECT value FROM settings WHERE key = ?",
-    args: [key],
-  });
-  if (result.rows.length === 0) return null;
-  return (result.rows[0] as unknown as Settings).value;
+  const row = await queryOne<Settings>("SELECT value FROM settings WHERE key = ?", [key]);
+  return row?.value ?? null;
 };
 
 /**

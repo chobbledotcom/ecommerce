@@ -107,7 +107,9 @@ export const getCurrencyCode = (): Promise<string> => {
  * This is a required configuration that hardens origin validation
  */
 export const getAllowedDomain = (): string => {
-  return getEnv("ALLOWED_DOMAIN") as string;
+  const domain = getEnv("ALLOWED_DOMAIN");
+  if (!domain) throw new Error("ALLOWED_DOMAIN environment variable is required");
+  return domain;
 };
 
 /**

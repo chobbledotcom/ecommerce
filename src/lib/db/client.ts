@@ -35,7 +35,16 @@ export const queryOne = async <T>(
   args: InValue[],
 ): Promise<T | null> => {
   const result = await getDb().execute({ sql, args });
-  return result.rows.length === 0 ? null : (result.rows[0] as unknown as T);
+  return result.rows.length === 0 ? null : result.rows[0] as unknown as T;
+};
+
+/** Query multiple rows with typed result */
+export const queryRows = async <T>(
+  sql: string,
+  args: InValue[] = [],
+): Promise<T[]> => {
+  const result = await getDb().execute({ sql, args });
+  return result.rows as unknown as T[];
 };
 
 /** Execute delete by field */

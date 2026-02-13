@@ -96,7 +96,8 @@ export const getAuthenticatedSession = async (
     return null;
   }
 
-  const adminLevel = await decryptAdminLevel(user) as AdminLevel;
+  const decrypted = await decryptAdminLevel(user);
+  const adminLevel: AdminLevel = decrypted === "owner" ? "owner" : "manager";
 
   return {
     token,

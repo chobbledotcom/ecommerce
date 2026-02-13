@@ -6,7 +6,7 @@
  */
 
 import { decrypt, encrypt } from "#lib/crypto.ts";
-import { getDb } from "#lib/db/client.ts";
+import { queryRows } from "#lib/db/client.ts";
 import { col, defineTable } from "#lib/db/table.ts";
 
 /** Activity log entry */
@@ -52,10 +52,9 @@ export const logActivity = (message: string): Promise<ActivityLogEntry> =>
 export const getAllActivityLog = async (
   limit = 100,
 ): Promise<ActivityLogEntry[]> => {
-  const result = await getDb().execute({
-    sql: "SELECT * FROM activity_log ORDER BY created DESC, id DESC LIMIT ?",
-    args: [limit],
-  });
-  const rows = result.rows as unknown as ActivityLogEntry[];
+  const rows = await queryRows<ActivityLogEntry>(
+    "SELECT * FROM activity_log ORDER BY created DESC, id DESC LIMIT ?",
+    [limit],
+  );
   return Promise.all(rows.map((row) => activityLogTable.fromDb(row)));
 };

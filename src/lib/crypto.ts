@@ -7,6 +7,13 @@ import { lazyRef } from "#fp";
 import { getEnv } from "#lib/env.ts";
 
 /**
+ * Cast Uint8Array to BufferSource for Web Crypto API.
+ * Uint8Array implements ArrayBufferView at runtime, but TS 5.9+ requires
+ * ArrayBufferView<ArrayBuffer> while Uint8Array.buffer is ArrayBufferLike.
+ */
+const buf = (bytes: Uint8Array): BufferSource => bytes as BufferSource;
+
+/**
  * Constant-time string comparison to prevent timing attacks.
  * Pads the shorter string to the length of the longer one so that
  * the comparison time does not leak either string's length.
@@ -19,7 +26,7 @@ export const constantTimeEqual = (a: string, b: string): boolean => {
   const maxLen = Math.max(bufA.length, bufB.length);
   let result = bufA.length ^ bufB.length; // non-zero if lengths differ
   for (let i = 0; i < maxLen; i++) {
-    result |= ((bufA[i] ?? 0) as number) ^ ((bufB[i] ?? 0) as number);
+    result |= (bufA[i] ?? 0) ^ (bufB[i] ?? 0);
   }
   return result === 0;
 };
@@ -139,7 +146,7 @@ const importEncryptionKey = async (): Promise<CryptoKey> => {
   const keyBytes = decodeKeyBytes(keyString);
   const key = await crypto.subtle.importKey(
     "raw",
-    keyBytes as BufferSource,
+    buf(keyBytes),
     { name: "AES-GCM" },
     false,
     ["encrypt", "decrypt"],
@@ -173,7 +180,7 @@ export const encrypt = async (plaintext: string): Promise<string> => {
   const plaintextBytes = encoder.encode(plaintext);
 
   const ciphertext = await crypto.subtle.encrypt(
-    { name: "AES-GCM", iv: nonce as BufferSource },
+    { name: "AES-GCM", iv: buf(nonce) },
     key,
     plaintextBytes,
   );
@@ -212,9 +219,9 @@ export const decrypt = async (encrypted: string): Promise<string> => {
 
   // Decrypt using AES-256-GCM (Web Crypto handles auth tag internally)
   const plaintextBytes = await crypto.subtle.decrypt(
-    { name: "AES-GCM", iv: nonce as BufferSource },
+    { name: "AES-GCM", iv: buf(nonce) },
     key,
-    ciphertext as BufferSource,
+    buf(ciphertext),
   );
 
   const decoder = new TextDecoder();
@@ -250,7 +257,7 @@ const PASSWORD_PREFIX = "pbkdf2";
 const constantTimeEqualBytes = (a: Uint8Array, b: Uint8Array): boolean => {
   let result = 0;
   for (let i = 0; i < a.length; i++) {
-    result |= (a[i] as number) ^ (b[i] as number);
+    result |= (a[i] ?? 0) ^ (b[i] ?? 0);
   }
   return result === 0;
 };
@@ -272,7 +279,7 @@ const derivePbkdf2Hash = async (
     ["deriveBits"],
   );
   const hashBuffer = await crypto.subtle.deriveBits(
-    { name: "PBKDF2", salt: salt as BufferSource, iterations, hash: "SHA-256" },
+    { name: "PBKDF2", salt: buf(salt), iterations, hash: "SHA-256" },
     passwordKey,
     PBKDF2_HASH_LENGTH * 8,
   );
@@ -302,14 +309,15 @@ export const verifyPassword = async (
     return false;
   }
 
-  const parts = storedHash.split(":") as [string, string, string, string];
+  const parts = storedHash.split(":");
   if (parts.length !== 4) {
     return false;
   }
 
-  const iterations = Number.parseInt(parts[1], 10);
-  const salt = fromBase64(parts[2]);
-  const expectedHash = fromBase64(parts[3]);
+  const [, iterStr, saltB64, hashB64] = parts;
+  const iterations = Number.parseInt(iterStr!, 10);
+  const salt = fromBase64(saltB64!);
+  const expectedHash = fromBase64(hashB64!);
 
   if (expectedHash.length !== PBKDF2_HASH_LENGTH) {
     return false;
@@ -349,7 +357,7 @@ export const hmacHash = async (value: string): Promise<string> => {
 
   const hmacKey = await crypto.subtle.importKey(
     "raw",
-    keyBytes as BufferSource,
+    buf(keyBytes),
     { name: "HMAC", hash: "SHA-256" },
     false,
     ["sign"],
@@ -395,7 +403,7 @@ export const deriveKEK = async (passwordHash: string): Promise<CryptoKey> => {
   return crypto.subtle.deriveKey(
     {
       name: "PBKDF2",
-      salt: salt as BufferSource,
+      salt: buf(salt),
       iterations: getPbkdf2Iterations(),
       hash: "SHA-256",
     },
@@ -438,7 +446,7 @@ export const wrapKey = async (
   // Export the key to raw bytes, then encrypt
   const rawKey = await crypto.subtle.exportKey("raw", keyToWrap);
   const wrapped = await crypto.subtle.encrypt(
-    { name: "AES-GCM", iv: iv as BufferSource },
+    { name: "AES-GCM", iv: buf(iv) },
     wrappingKey,
     rawKey,
   );
@@ -472,9 +480,9 @@ export const unwrapKey = async (
 
   // Decrypt to get raw key bytes
   const rawKey = await crypto.subtle.decrypt(
-    { name: "AES-GCM", iv: iv as BufferSource },
+    { name: "AES-GCM", iv: buf(iv) },
     unwrappingKey,
-    wrappedBytes as BufferSource,
+    buf(wrappedBytes),
   );
 
   // Import as AES-GCM key
@@ -510,7 +518,7 @@ export const wrapKeyWithToken = async (
   const wrappingKey = await crypto.subtle.deriveKey(
     {
       name: "PBKDF2",
-      salt,
+      salt: buf(salt),
       iterations: 1, // Fast - token is already high entropy
       hash: "SHA-256",
     },
@@ -523,7 +531,7 @@ export const wrapKeyWithToken = async (
   const iv = getRandomBytes(12);
   const rawKey = await crypto.subtle.exportKey("raw", keyToWrap);
   const wrapped = await crypto.subtle.encrypt(
-    { name: "AES-GCM", iv: iv as BufferSource },
+    { name: "AES-GCM", iv: buf(iv) },
     wrappingKey,
     rawKey,
   );
@@ -580,9 +588,9 @@ export const unwrapKeyWithToken = async (
   const wrappedBytes = fromBase64(wrappedBase64);
 
   const rawKey = await crypto.subtle.decrypt(
-    { name: "AES-GCM", iv: iv as BufferSource },
+    { name: "AES-GCM", iv: buf(iv) },
     unwrappingKey,
-    wrappedBytes as BufferSource,
+    buf(wrappedBytes),
   );
 
   return crypto.subtle.importKey(
@@ -638,7 +646,7 @@ export const generateKeyPair = async (): Promise<{
  * Import a public key from JWK string
  */
 export const importPublicKey = (jwkString: string): Promise<CryptoKey> => {
-  const jwk = JSON.parse(jwkString) as JsonWebKey;
+  const jwk: JsonWebKey = JSON.parse(jwkString);
   return crypto.subtle.importKey(
     "jwk",
     jwk,
@@ -652,7 +660,7 @@ export const importPublicKey = (jwkString: string): Promise<CryptoKey> => {
  * Import a private key from JWK string
  */
 export const importPrivateKey = (jwkString: string): Promise<CryptoKey> => {
-  const jwk = JSON.parse(jwkString) as JsonWebKey;
+  const jwk: JsonWebKey = JSON.parse(jwkString);
   return crypto.subtle.importKey(
     "jwk",
     jwk,
@@ -686,7 +694,7 @@ export const hybridEncrypt = async (
   const iv = getRandomBytes(12);
   const encoder = new TextEncoder();
   const ciphertext = await crypto.subtle.encrypt(
-    { name: "AES-GCM", iv: iv as BufferSource },
+    { name: "AES-GCM", iv: buf(iv) },
     aesKey,
     encoder.encode(plaintext),
   );
@@ -722,18 +730,14 @@ export const hybridDecrypt = async (
     );
   }
 
-  const [wrappedKeyB64, ivB64, ciphertextB64] = parts as [
-    string,
-    string,
-    string,
-  ];
+  const [wrappedKeyB64, ivB64, ciphertextB64] = parts;
 
   // Decrypt the AES key with RSA
-  const wrappedKey = fromBase64(wrappedKeyB64);
+  const wrappedKey = fromBase64(wrappedKeyB64!);
   const rawAesKey = await crypto.subtle.decrypt(
     { name: "RSA-OAEP" },
     privateKey,
-    wrappedKey as BufferSource,
+    buf(wrappedKey),
   );
 
   // Import the AES key
@@ -746,12 +750,12 @@ export const hybridDecrypt = async (
   );
 
   // Decrypt the data with AES
-  const iv = fromBase64(ivB64);
-  const ciphertext = fromBase64(ciphertextB64);
+  const iv = fromBase64(ivB64!);
+  const ciphertext = fromBase64(ciphertextB64!);
   const plaintext = await crypto.subtle.decrypt(
-    { name: "AES-GCM", iv: iv as BufferSource },
+    { name: "AES-GCM", iv: buf(iv) },
     aesKey,
-    ciphertext as BufferSource,
+    buf(ciphertext),
   );
 
   return new TextDecoder().decode(plaintext);
@@ -768,7 +772,7 @@ export const encryptWithKey = async (
   const iv = getRandomBytes(12);
   const encoder = new TextEncoder();
   const ciphertext = await crypto.subtle.encrypt(
-    { name: "AES-GCM", iv: iv as BufferSource },
+    { name: "AES-GCM", iv: buf(iv) },
     key,
     encoder.encode(plaintext),
   );
@@ -799,9 +803,9 @@ export const decryptWithKey = async (
   const ciphertext = fromBase64(ciphertextB64);
 
   const plaintext = await crypto.subtle.decrypt(
-    { name: "AES-GCM", iv: iv as BufferSource },
+    { name: "AES-GCM", iv: buf(iv) },
     key,
-    ciphertext as BufferSource,
+    buf(ciphertext),
   );
 
   return new TextDecoder().decode(plaintext);
@@ -825,4 +829,3 @@ export const getPrivateKeyFromSession = async (
   // Import and return the private key
   return importPrivateKey(privateKeyJwk);
 };
-

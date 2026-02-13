@@ -337,8 +337,7 @@ export const defineTable = <Row, Input = Row>(config: {
   // Find all implementation
   const findAll = async (): Promise<Row[]> => {
     const result = await getDb().execute(`SELECT * FROM ${name}`);
-    const rows = result.rows as unknown as Row[];
-    return mapAsync(fromDb)(rows);
+    return mapAsync(fromDb)(result.rows as unknown as Row[]);
   };
 
   return {

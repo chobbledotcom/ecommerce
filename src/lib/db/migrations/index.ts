@@ -3,7 +3,7 @@
  */
 
 import { encrypt, hmacHash } from "#lib/crypto.ts";
-import { getDb } from "#lib/db/client.ts";
+import { getDb, queryOne } from "#lib/db/client.ts";
 import { getSetting } from "#lib/db/settings.ts";
 
 /**
@@ -130,8 +130,8 @@ export const initDb = async (): Promise<void> => {
   {
     const existingPasswordHash = await getSetting("admin_password");
     const existingWrappedDataKey = await getSetting("wrapped_data_key");
-    const userCount = await getDb().execute("SELECT COUNT(*) as count FROM users");
-    const hasNoUsers = (userCount.rows[0] as unknown as { count: number }).count === 0;
+    const countRow = await queryOne<{ count: number }>("SELECT COUNT(*) as count FROM users", []);
+    const hasNoUsers = (countRow?.count ?? 0) === 0;
 
     if (existingPasswordHash && hasNoUsers) {
       const username = "admin";

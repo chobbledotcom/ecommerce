@@ -41,6 +41,18 @@ export interface FieldValues {
   [key: string]: string | number | null;
 }
 
+/** Narrow a field value to string (text/password/textarea fields) */
+export const fieldStr = (values: FieldValues, key: string): string => {
+  const v = values[key];
+  return typeof v === "string" ? v : String(v ?? "");
+};
+
+/** Narrow a field value to number (number fields) */
+export const fieldNum = (values: FieldValues, key: string): number => {
+  const v = values[key];
+  return typeof v === "number" ? v : Number(v ?? 0);
+};
+
 type ValidationResult =
   | { valid: true; values: FieldValues }
   | { valid: false; error: string };
