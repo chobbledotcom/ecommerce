@@ -302,7 +302,7 @@ describe("server (webhooks)", () => {
       await setStripeWebhookConfig({ secret: BUILD_LINE_ITEMS_SECRET, endpointId: "we_test_bli" });
     });
 
-    test("handles completed session with no reservations (empty line items)", async () => {
+    test("returns 404 for completed session with no reservations", async () => {
       const { payload, signature } = await constructTestWebhookEvent(
         {
           id: "evt_no_reservations",
@@ -323,10 +323,9 @@ describe("server (webhooks)", () => {
           body: payload,
         }),
       );
-      expect(response.status).toBe(200);
-      const data = await response.json();
-      expect(data.processed).toBe(true);
-      expect(data.confirmed).toBe(0);
+      expect(response.status).toBe(404);
+      const text = await response.text();
+      expect(text).toContain("Unknown payment session");
     });
 
     test("handles product deleted after reservation (product map miss)", async () => {

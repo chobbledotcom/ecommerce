@@ -47,8 +47,6 @@ const buildLineItems = async (
   reservations: Reservation[],
 ): Promise<WebhookLineItem[]> => {
   const productIds = map((r: Reservation) => r.product_id)(reservations);
-  if (productIds.length === 0) return [];
-
   const placeholders = productIds.map(() => "?").join(",");
   const products = await queryRows<Product>(
     `SELECT * FROM products WHERE id IN (${placeholders})`,
@@ -108,6 +106,12 @@ const handlePaymentWebhook = async (request: Request): Promise<Response> => {
     const sessionId = getSessionId(event);
     if (!sessionId) return webhookAckResponse();
 
+    // Reject payments we have no reservations for
+    const reservations = await getReservationsBySession(sessionId);
+    if (reservations.length === 0) {
+      return new Response("Unknown payment session", { status: 404 });
+    }
+
     // Idempotency: claim this session ID
     const reservation = await reserveSession(sessionId);
     if (!reservation.reserved) {
@@ -120,7 +124,6 @@ const handlePaymentWebhook = async (request: Request): Promise<Response> => {
     logDebug("Webhook", `Confirmed ${confirmed} reservations for ${sessionId}`);
 
     // Send webhook notification
-    const reservations = await getReservationsBySession(sessionId);
     const lineItems = await buildLineItems(reservations);
     const currency = await getCurrencyCode();
     const webhookUrl = await getSetting("webhook_url");
